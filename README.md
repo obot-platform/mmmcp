@@ -199,3 +199,7 @@ COPY --chown=mmmcp:mmmcp files-mcp /usr/local/bin/files-mcp
 
 Tagged releases publish Linux, macOS, and Windows archives, checksums, and a
 Linux amd64/arm64 image at `ghcr.io/obot-platform/mmmcp`.
+
+## Current Limitations
+- `mmmcp` doesn't properly propogate OAuth
+- Windows support is untested

@@ -62,7 +62,7 @@ endpoint="http://127.0.0.1:18080"
 
 i=0
 until (
-  "$work/imagecheck" client --endpoint "$endpoint"
+  "$work/imagecheck" client --endpoint "$endpoint" --tool echo
 ) >/dev/null 2>&1; do
   i=$((i + 1))
   if [ "$i" -ge 100 ]; then
