@@ -46,7 +46,7 @@ changelog:
 
 release:
   github:
-    owner: thedadams
+    owner: obot-platform
     name: mmmcp
 
 dockers_v2:
@@ -55,7 +55,7 @@ dockers_v2:
     ids:
       - mmmcp
     images:
-      - ghcr.io/thedadams/mmmcp
+      - ghcr.io/obot-platform/mmmcp
     tags:
       - "{{ .Version }}"
       - "{{ if not .IsSnapshot }}latest{{ end }}"
