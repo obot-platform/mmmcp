@@ -35,16 +35,6 @@ type dependencies struct {
 	newComposite func(context.Context, *config.Config, mmmcp.Options) (application, error)
 }
 
-func defaultDependencies() dependencies {
-	return dependencies{
-		lookupEnv: os.LookupEnv,
-		listen:    net.Listen,
-		newComposite: func(ctx context.Context, cfg *config.Config, opts mmmcp.Options) (application, error) {
-			return mmmcp.New(ctx, cfg, opts)
-		},
-	}
-}
-
 type settings struct {
 	configPath string
 	transport  string
@@ -55,6 +45,16 @@ type settings struct {
 type optionalString struct {
 	value string
 	set   bool
+}
+
+func defaultDependencies() dependencies {
+	return dependencies{
+		lookupEnv: os.LookupEnv,
+		listen:    net.Listen,
+		newComposite: func(ctx context.Context, cfg *config.Config, opts mmmcp.Options) (application, error) {
+			return mmmcp.New(ctx, cfg, opts)
+		},
+	}
 }
 
 func (v *optionalString) String() string { return v.value }

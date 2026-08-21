@@ -13,6 +13,10 @@ import (
 	"github.com/obot-platform/mmmcp/config"
 )
 
+const (
+	refreshDebounce = 10 * time.Millisecond
+)
+
 // Registry caches immutable catalogs by complete configuration fingerprint.
 type Registry struct {
 	discoverer component.Discoverer
@@ -32,8 +36,6 @@ type registryEntry struct {
 	timer      *time.Timer
 	callbacks  []func(bool)
 }
-
-const refreshDebounce = 10 * time.Millisecond
 
 // NewRegistry creates a catalog registry.
 func NewRegistry(discoverer component.Discoverer) *Registry {

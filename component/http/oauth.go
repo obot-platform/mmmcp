@@ -20,11 +20,6 @@ type OAuthHandlerProvider interface {
 // OAuthHandlerProviderFunc adapts a function into an OAuthHandlerProvider.
 type OAuthHandlerProviderFunc func(context.Context, config.Server) (auth.OAuthHandler, error)
 
-// OAuthHandler implements OAuthHandlerProvider.
-func (f OAuthHandlerProviderFunc) OAuthHandler(ctx context.Context, server config.Server) (auth.OAuthHandler, error) {
-	return f(ctx, server)
-}
-
 // TokenStore persists an OAuth token. The token includes its access token,
 // refresh token, type, expiry, and provider-specific extra fields.
 type TokenStore interface {
@@ -33,6 +28,20 @@ type TokenStore interface {
 
 // TokenStoreFunc adapts a function into a TokenStore.
 type TokenStoreFunc func(context.Context, *oauth2.Token) error
+
+type persistentTokenSource struct {
+	ctx    context.Context
+	source oauth2.TokenSource
+	store  TokenStore
+
+	mu   sync.Mutex
+	last *oauth2.Token
+}
+
+// OAuthHandler implements OAuthHandlerProvider.
+func (f OAuthHandlerProviderFunc) OAuthHandler(ctx context.Context, server config.Server) (auth.OAuthHandler, error) {
+	return f(ctx, server)
+}
 
 // StoreToken implements TokenStore.
 func (f TokenStoreFunc) StoreToken(ctx context.Context, token *oauth2.Token) error {
@@ -53,16 +62,6 @@ func NewPersistentTokenSource(ctx context.Context, source oauth2.TokenSource, st
 	}
 	return &persistentTokenSource{ctx: ctx, source: source, store: store}
 }
-
-type persistentTokenSource struct {
-	ctx    context.Context
-	source oauth2.TokenSource
-	store  TokenStore
-
-	mu   sync.Mutex
-	last *oauth2.Token
-}
-
 func (s *persistentTokenSource) Token() (*oauth2.Token, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

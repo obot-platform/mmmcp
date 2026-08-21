@@ -11,6 +11,10 @@ import (
 	"github.com/obot-platform/mmmcp/config"
 )
 
+type featureDiscoverer struct {
+	features map[string]*component.Features
+}
+
 func TestCompileAllFeaturesAppliesOverridesBeforeNamespace(t *testing.T) {
 	inputSchema := map[string]any{"type": "object", "properties": map[string]any{"value": map[string]any{"type": "string"}}}
 	annotations := &mcp.ToolAnnotations{ReadOnlyHint: true}
@@ -175,10 +179,6 @@ func TestCompileIgnoresOverridesForUndiscoveredFeatures(t *testing.T) {
 	if len(compiled.Tools()) != 1 || len(compiled.Prompts()) != 1 || len(compiled.Resources()) != 1 || len(compiled.ResourceTemplates()) != 1 {
 		t.Fatal("discovered features were not preserved")
 	}
-}
-
-type featureDiscoverer struct {
-	features map[string]*component.Features
 }
 
 func (d featureDiscoverer) Discover(_ context.Context, server config.Server) (*component.Features, error) {

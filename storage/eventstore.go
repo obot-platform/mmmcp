@@ -11,7 +11,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-var errUnknownEventStream = errors.New("unknown event stream")
+var (
+	errUnknownEventStream = errors.New("unknown event stream")
+)
 
 // Open prepares a stream for ordered event storage.
 func (s *SQLStore) Open(ctx context.Context, sessionID, streamID string) error {

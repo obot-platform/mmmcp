@@ -7,7 +7,9 @@ import (
 	"net/http"
 )
 
-const currentProtocolVersion = "2026-07-28"
+const (
+	currentProtocolVersion = "2026-07-28"
+)
 
 type httpDispatcher struct {
 	stateless http.Handler

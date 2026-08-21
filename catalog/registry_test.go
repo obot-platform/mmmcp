@@ -12,6 +12,14 @@ import (
 	"github.com/obot-platform/mmmcp/config"
 )
 
+type countingDiscoverer struct {
+	mu      sync.Mutex
+	count   int
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
 func TestFingerprintIsStableCompleteAndSecretSafe(t *testing.T) {
 	cfg := &config.Config{Servers: []config.Server{{
 		Name: "fixture", URL: "https://example.invalid", Headers: map[string]string{"Authorization": "Bearer secret"},
@@ -77,14 +85,6 @@ func TestRegistryDeduplicatesConcurrentCompilation(t *testing.T) {
 	if got := discoverer.Count(); got != 1 {
 		t.Fatalf("discoveries = %d, want 1", got)
 	}
-}
-
-type countingDiscoverer struct {
-	mu      sync.Mutex
-	count   int
-	started chan struct{}
-	release chan struct{}
-	once    sync.Once
 }
 
 func (d *countingDiscoverer) Discover(context.Context, config.Server) (*component.Features, error) {

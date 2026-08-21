@@ -14,6 +14,10 @@ import (
 	"golang.org/x/oauth2"
 )
 
+type failingOAuthHandler struct {
+	err error
+}
+
 func TestFactoryReturnsAuthorizationError(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -118,10 +122,6 @@ func TestFactoryPreservesAuthorizationErrorWhenOAuthFails(t *testing.T) {
 	if !errors.Is(err, oauthErr) {
 		t.Fatalf("error = %v, want wrapped OAuth error", err)
 	}
-}
-
-type failingOAuthHandler struct {
-	err error
 }
 
 func (failingOAuthHandler) TokenSource(context.Context) (oauth2.TokenSource, error) {

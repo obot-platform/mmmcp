@@ -10,6 +10,26 @@ import (
 	"github.com/obot-platform/mmmcp/component"
 )
 
+type fakeRuntime struct {
+	id     int
+	mu     sync.Mutex
+	closed bool
+}
+
+type fakeClock struct {
+	mu     sync.Mutex
+	now    time.Duration
+	timers []*fakeTimer
+}
+
+type fakeTimer struct {
+	clock   *fakeClock
+	at      time.Duration
+	fn      func()
+	stopped bool
+	fired   bool
+}
+
 func TestManagerRetiresAndRestartsAfterIdle(t *testing.T) {
 	clock := newFakeClock()
 	var mu sync.Mutex
@@ -74,12 +94,6 @@ func TestManagerDefersRetirementForOperationsAndFrontendActivity(t *testing.T) {
 	}
 }
 
-type fakeRuntime struct {
-	id     int
-	mu     sync.Mutex
-	closed bool
-}
-
 func (*fakeRuntime) CallTool(context.Context, *mcp.CallToolParams) (*mcp.CallToolResult, error) {
 	return &mcp.CallToolResult{}, nil
 }
@@ -101,20 +115,6 @@ func (r *fakeRuntime) Closed() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.closed
-}
-
-type fakeClock struct {
-	mu     sync.Mutex
-	now    time.Duration
-	timers []*fakeTimer
-}
-
-type fakeTimer struct {
-	clock   *fakeClock
-	at      time.Duration
-	fn      func()
-	stopped bool
-	fired   bool
 }
 
 func newFakeClock() *fakeClock { return &fakeClock{} }

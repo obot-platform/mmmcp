@@ -15,7 +15,9 @@ import (
 	"github.com/obot-platform/mmmcp/config"
 )
 
-var implementation = &mcp.Implementation{Name: "mmmcp", Version: "dev"}
+var (
+	implementation = &mcp.Implementation{Name: "mmmcp", Version: "dev"}
+)
 
 // Factory creates isolated Streamable HTTP client sessions.
 type Factory struct {
@@ -27,6 +29,17 @@ type Factory struct {
 type FactoryOptions struct {
 	HTTPClient *http.Client
 	OAuth      OAuthHandlerProvider
+}
+
+type runtime struct {
+	server  config.Server
+	session *mcp.ClientSession
+}
+
+type headerTransport struct {
+	base               http.RoundTripper
+	headers            map[string]string
+	passthroughHeaders []string
 }
 
 // NewFactory creates a Streamable HTTP component factory.
@@ -213,12 +226,6 @@ func (f *Factory) connectWithStandaloneSSE(ctx context.Context, server config.Se
 	}
 	return client.Connect(ctx, transport, nil)
 }
-
-type runtime struct {
-	server  config.Server
-	session *mcp.ClientSession
-}
-
 func (r *runtime) CallTool(ctx context.Context, params *mcp.CallToolParams) (*mcp.CallToolResult, error) {
 	ctx, cancel := withTimeout(ctx, r.server.Timeout)
 	defer cancel()
@@ -288,13 +295,6 @@ func downstreamReadResourceParams(params *mcp.ReadResourceParams) *mcp.ReadResou
 	clone.Meta = component.DownstreamMeta(params.Meta)
 	return &clone
 }
-
-type headerTransport struct {
-	base               http.RoundTripper
-	headers            map[string]string
-	passthroughHeaders []string
-}
-
 func (t headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	clone := req.Clone(req.Context())
 	clone.Header = req.Header.Clone()

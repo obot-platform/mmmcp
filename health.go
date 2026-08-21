@@ -9,7 +9,9 @@ import (
 	"github.com/obot-platform/mmmcp/storage"
 )
 
-const probeTimeout = 500 * time.Millisecond
+const (
+	probeTimeout = 500 * time.Millisecond
+)
 
 type probeCheck struct {
 	Status string `json:"status"`

@@ -1,6 +1,8 @@
 package storage
 
-import "time"
+import (
+	"time"
+)
 
 const (
 	defaultEventTTL            = 24 * time.Hour

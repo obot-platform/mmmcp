@@ -13,6 +13,13 @@ import (
 	"github.com/obot-platform/mmmcp/config"
 )
 
+type mutableDiscoverer struct {
+	mu    sync.Mutex
+	name  string
+	err   error
+	count int
+}
+
 func TestRegistryRefreshDebouncesAndKeepsLastKnownGood(t *testing.T) {
 	discoverer := &mutableDiscoverer{name: "first"}
 	registry := catalog.NewRegistry(discoverer)
@@ -62,13 +69,6 @@ func TestRegistryRefreshDebouncesAndKeepsLastKnownGood(t *testing.T) {
 	if retained != second || retained.Tools()[0].Name != "second" {
 		t.Fatalf("failed refresh replaced last-known-good catalog: %+v", retained.Tools())
 	}
-}
-
-type mutableDiscoverer struct {
-	mu    sync.Mutex
-	name  string
-	err   error
-	count int
 }
 
 func (d *mutableDiscoverer) Discover(context.Context, config.Server) (*component.Features, error) {

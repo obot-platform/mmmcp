@@ -10,7 +10,9 @@ import (
 	"github.com/obot-platform/mmmcp/config"
 )
 
-var implementation = &mcp.Implementation{Name: "mmmcp", Version: "dev"}
+var (
+	implementation = &mcp.Implementation{Name: "mmmcp", Version: "dev"}
+)
 
 type runtimeSession struct {
 	server  config.Server

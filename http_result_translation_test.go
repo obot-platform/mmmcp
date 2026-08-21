@@ -16,6 +16,11 @@ import (
 	"github.com/obot-platform/mmmcp/testserver"
 )
 
+type operationWireCase struct {
+	method string
+	params map[string]any
+}
+
 func TestCurrentFrontendOperationResultsFromStatefulHTTPDownstream(t *testing.T) {
 	frontend := operationTranslationFrontend(t, true)
 	meta := map[string]any{
@@ -51,11 +56,6 @@ func TestLegacyFrontendOperationResultsFromStatelessHTTPDownstream(t *testing.T)
 			}
 		})
 	}
-}
-
-type operationWireCase struct {
-	method string
-	params map[string]any
 }
 
 func operationWireCases() []operationWireCase {

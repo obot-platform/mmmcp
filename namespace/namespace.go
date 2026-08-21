@@ -6,7 +6,9 @@ import (
 	"strings"
 )
 
-const maxFeatureNameLength = 128
+const (
+	maxFeatureNameLength = 128
+)
 
 // Prefix returns an explicitly configured prefix or a sanitized component name.
 func Prefix(componentName, configured string) (string, error) {
