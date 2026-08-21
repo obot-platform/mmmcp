@@ -281,6 +281,7 @@ type process struct {
 
 func startProcess(name string, args ...string) *process {
 	p := &process{cmd: exec.Command(name, args...), exited: make(chan struct{})}
+	configureProcessGroup(p.cmd)
 	p.cmd.Stdout = &p.output
 	p.cmd.Stderr = &p.output
 	return p
@@ -310,11 +311,11 @@ func (p *process) stop(t *testing.T) {
 		return
 	default:
 	}
-	_ = p.cmd.Process.Signal(os.Interrupt)
+	_ = signalProcessGroup(p.cmd.Process, os.Interrupt)
 	select {
 	case <-p.exited:
 	case <-time.After(10 * time.Second):
-		_ = p.cmd.Process.Kill()
+		_ = signalProcessGroup(p.cmd.Process, os.Kill)
 		<-p.exited
 	}
 	if t.Failed() {
