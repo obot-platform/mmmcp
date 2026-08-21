@@ -57,7 +57,7 @@ dockers_v2:
     images:
       - ghcr.io/obot-platform/mmmcp
     tags:
-      - "{{ .Version }}"
+      - "{{ .Tag }}"
       - "{{ if not .IsSnapshot }}latest{{ end }}"
     platforms:
       - linux/amd64
