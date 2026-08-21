@@ -13,6 +13,10 @@ import (
 	"github.com/obot-platform/mmmcp/testserver"
 )
 
+type staticDiscoverer struct {
+	tools map[string][]*mcp.Tool
+}
+
 func TestCompileExhaustsPaginationSortsAndRoutesOriginalNames(t *testing.T) {
 	fixture := testserver.New(t, testserver.Options{
 		PageSize: 1,
@@ -76,10 +80,6 @@ func TestCompileDoesNotMutateDiscoveredTool(t *testing.T) {
 	if compiled.Tools()[0].Name != "read" {
 		t.Fatalf("compiled tool name = %q", compiled.Tools()[0].Name)
 	}
-}
-
-type staticDiscoverer struct {
-	tools map[string][]*mcp.Tool
 }
 
 func (d staticDiscoverer) Discover(_ context.Context, server config.Server) (*component.Features, error) {

@@ -10,17 +10,19 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-//go:embed sqlite/*.sql postgres/*.sql mysql/*.sql
-var files embed.FS
-
-// Dialect identifies one embedded migration set.
-type Dialect string
-
 const (
 	SQLite   Dialect = "sqlite"
 	Postgres Dialect = "postgres"
 	MySQL    Dialect = "mysql"
 )
+
+var (
+	//go:embed sqlite/*.sql postgres/*.sql mysql/*.sql
+	files embed.FS
+)
+
+// Dialect identifies one embedded migration set.
+type Dialect string
 
 // Up applies all pending migrations for dialect. Omitting dialect preserves
 // the original SQLite-only API.

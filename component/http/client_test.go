@@ -16,6 +16,10 @@ import (
 	"golang.org/x/oauth2"
 )
 
+type staticOAuthHandler struct {
+	token *oauth2.Token
+}
+
 func TestFactorySendsHeadersAndUsesFreshCallSessions(t *testing.T) {
 	fixture := testserver.New(t, testserver.Options{
 		Headers: map[string]string{"Authorization": "Bearer token"},
@@ -94,10 +98,6 @@ func TestFactoryUsesComponentOAuthHandler(t *testing.T) {
 	if providedFor.Name != server.Name || providedFor.URL != server.URL {
 		t.Fatalf("provider server = %+v, want %+v", providedFor, server)
 	}
-}
-
-type staticOAuthHandler struct {
-	token *oauth2.Token
 }
 
 func (h staticOAuthHandler) TokenSource(context.Context) (oauth2.TokenSource, error) {

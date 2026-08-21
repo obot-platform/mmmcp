@@ -10,14 +10,14 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Dialect identifies a supported database family.
-type Dialect string
-
 const (
 	DialectSQLite   Dialect = "sqlite"
 	DialectPostgres Dialect = "postgres"
 	DialectMySQL    Dialect = "mysql"
 )
+
+// Dialect identifies a supported database family.
+type Dialect string
 
 // Store is an opened persistent store.
 type Store interface {
@@ -31,6 +31,11 @@ type SQLStore struct {
 	db      *sql.DB
 	dialect Dialect
 	options Options
+}
+
+type operationError struct {
+	dialect   Dialect
+	operation string
 }
 
 // DB returns the underlying database handle for repository integrations.
@@ -55,11 +60,6 @@ func (s *SQLStore) Close() error {
 		return nil
 	}
 	return s.db.Close()
-}
-
-type operationError struct {
-	dialect   Dialect
-	operation string
 }
 
 func (e *operationError) Error() string {

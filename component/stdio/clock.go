@@ -1,6 +1,8 @@
 package stdio
 
-import "time"
+import (
+	"time"
+)
 
 type timer interface {
 	Stop() bool

@@ -15,6 +15,13 @@ import (
 	"github.com/obot-platform/mmmcp/config"
 )
 
+type fakeApplication struct {
+	started chan struct{}
+	once    sync.Once
+	mu      sync.Mutex
+	closed  bool
+}
+
 func TestParseSettingsFlagOverridesEnvironment(t *testing.T) {
 	environment := map[string]string{
 		"MMMCP_CONFIG":    "environment.yaml",
@@ -103,13 +110,6 @@ func writeConfig(t *testing.T, contents string) string {
 		t.Fatal(err)
 	}
 	return path
-}
-
-type fakeApplication struct {
-	started chan struct{}
-	once    sync.Once
-	mu      sync.Mutex
-	closed  bool
 }
 
 func (f *fakeApplication) HTTPHandler() http.Handler { return http.NotFoundHandler() }

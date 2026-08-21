@@ -11,6 +11,12 @@ import (
 	"github.com/obot-platform/mmmcp/config"
 )
 
+const (
+	FeatureTools     FeatureFamily = "tools"
+	FeaturePrompts   FeatureFamily = "prompts"
+	FeatureResources FeatureFamily = "resources"
+)
+
 // Features is a complete component discovery snapshot.
 type Features struct {
 	Tools             []*mcp.Tool
@@ -55,12 +61,6 @@ type RuntimeOptions struct {
 // FeatureFamily identifies a composite catalog family changed by a component.
 type FeatureFamily string
 
-const (
-	FeatureTools     FeatureFamily = "tools"
-	FeaturePrompts   FeatureFamily = "prompts"
-	FeatureResources FeatureFamily = "resources"
-)
-
 // Callbacks binds one downstream session to its exact frontend session and
 // configuration. A zero Frontend marks a stateless runtime, where direct
 // server-to-client requests are rejected.
@@ -73,13 +73,36 @@ type Callbacks struct {
 	ResourceUpdate func(context.Context, string)
 }
 
+type requestHeadersContextKey struct{}
+
+type valueSuppressingContext struct {
+	context.Context
+}
+
+// FrontendActivityRuntime receives the number of active frontend HTTP
+// requests associated with its stateful session.
+type FrontendActivityRuntime interface {
+	SetFrontendActivity(int)
+}
+
+// RuntimeFactory opens connected component sessions for stateful frontends.
+type RuntimeFactory interface {
+	OpenRuntime(context.Context, config.Server, RuntimeOptions) (Runtime, error)
+}
+
+// Factory provides discovery and invocation operations.
+type Factory interface {
+	Discoverer
+	Invoker
+	RuntimeFactory
+	Close() error
+}
+
 // WithoutValues preserves cancellation and deadlines while preventing private
 // values owned by an upstream SDK session from leaking into a downstream one.
 func WithoutValues(ctx context.Context) context.Context {
 	return valueSuppressingContext{Context: ctx}
 }
-
-type requestHeadersContextKey struct{}
 
 // ContextWithRequestHeaders attaches an immutable snapshot of the headers from
 // the frontend HTTP request. The snapshot is the only context value preserved
@@ -92,10 +115,6 @@ func ContextWithRequestHeaders(ctx context.Context, headers http.Header) context
 func RequestHeadersFromContext(ctx context.Context) http.Header {
 	headers, _ := ctx.Value(requestHeadersContextKey{}).(http.Header)
 	return headers.Clone()
-}
-
-type valueSuppressingContext struct {
-	context.Context
 }
 
 func (c valueSuppressingContext) Value(key any) any {
@@ -124,23 +143,4 @@ func DownstreamMeta(meta mcp.Meta) mcp.Meta {
 		}
 	}
 	return clean
-}
-
-// FrontendActivityRuntime receives the number of active frontend HTTP
-// requests associated with its stateful session.
-type FrontendActivityRuntime interface {
-	SetFrontendActivity(int)
-}
-
-// RuntimeFactory opens connected component sessions for stateful frontends.
-type RuntimeFactory interface {
-	OpenRuntime(context.Context, config.Server, RuntimeOptions) (Runtime, error)
-}
-
-// Factory provides discovery and invocation operations.
-type Factory interface {
-	Discoverer
-	Invoker
-	RuntimeFactory
-	Close() error
 }

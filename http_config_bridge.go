@@ -10,7 +10,9 @@ import (
 	"github.com/obot-platform/mmmcp/config"
 )
 
-const privateConfigHeader = "X-MMMCP-Request-Config"
+const (
+	privateConfigHeader = "X-MMMCP-Request-Config"
+)
 
 type configSelection struct {
 	config     *config.Config

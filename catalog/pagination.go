@@ -9,15 +9,15 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Family identifies one independently paginated feature collection.
-type Family string
-
 const (
 	FamilyTools             Family = "tools"
 	FamilyPrompts           Family = "prompts"
 	FamilyResources         Family = "resources"
 	FamilyResourceTemplates Family = "resourceTemplates"
 )
+
+// Family identifies one independently paginated feature collection.
+type Family string
 
 type cursor struct {
 	Catalog string `json:"catalog"`

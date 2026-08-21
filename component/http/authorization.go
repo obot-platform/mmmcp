@@ -21,6 +21,12 @@ type AuthorizationError = component.AuthorizationError
 // the status and challenge parameters that its normal HTTP error discards.
 type authorizationErrorHandler struct{}
 
+// typedOAuthHandler preserves a component's challenge when its configured
+// OAuth handler cannot complete authorization.
+type typedOAuthHandler struct {
+	auth.OAuthHandler
+}
+
 func (authorizationErrorHandler) TokenSource(context.Context) (oauth2.TokenSource, error) {
 	return nil, nil
 }
@@ -29,12 +35,6 @@ func (authorizationErrorHandler) Authorize(_ context.Context, _ *http.Request, r
 	defer resp.Body.Close()
 	defer func() { _, _ = io.Copy(io.Discard, resp.Body) }()
 	return authorizationErrorFromResponse(resp)
-}
-
-// typedOAuthHandler preserves a component's challenge when its configured
-// OAuth handler cannot complete authorization.
-type typedOAuthHandler struct {
-	auth.OAuthHandler
 }
 
 func (h typedOAuthHandler) Authorize(ctx context.Context, req *http.Request, resp *http.Response) error {

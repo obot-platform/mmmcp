@@ -17,14 +17,22 @@ import (
 	"github.com/obot-platform/mmmcp/component"
 )
 
-const authorizationErrorCaptureHeader = "X-Mmmcp-Authorization-Capture"
-const subscriptionsListenMethod = "subscriptions/listen"
+const (
+	authorizationErrorCaptureHeader = "X-Mmmcp-Authorization-Capture"
+	subscriptionsListenMethod       = "subscriptions/listen"
+)
 
 type authorizationErrorCaptureKey struct{}
 
 type authorizationErrorCapture struct {
 	mu  sync.Mutex
 	err *component.AuthorizationError
+}
+
+type bufferedResponseWriter struct {
+	header http.Header
+	body   bytes.Buffer
+	status int
 }
 
 func contextWithAuthorizationErrorCapture(ctx context.Context, capture *authorizationErrorCapture) context.Context {
@@ -126,12 +134,6 @@ func authorizationChallenge(authErr *component.AuthorizationError) string {
 		return "Bearer"
 	}
 	return "Bearer " + strings.Join(params, ", ")
-}
-
-type bufferedResponseWriter struct {
-	header http.Header
-	body   bytes.Buffer
-	status int
 }
 
 func newBufferedResponseWriter() *bufferedResponseWriter {

@@ -12,6 +12,11 @@ import (
 	"github.com/obot-platform/mmmcp/testserver"
 )
 
+type requestHeadersTransport struct {
+	base    http.RoundTripper
+	headers http.Header
+}
+
 func TestCompositePassesSelectedFrontendHeaders(t *testing.T) {
 	required := map[string]string{"X-Unlisted": ""}
 	fixture := testserver.New(t, testserver.Options{
@@ -64,11 +69,6 @@ func TestCompositePassesSelectedFrontendHeaders(t *testing.T) {
 	if _, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "echo"}); err != nil {
 		t.Fatal(err)
 	}
-}
-
-type requestHeadersTransport struct {
-	base    http.RoundTripper
-	headers http.Header
 }
 
 func (t requestHeadersTransport) RoundTrip(req *http.Request) (*http.Response, error) {

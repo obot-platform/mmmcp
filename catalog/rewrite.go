@@ -1,6 +1,8 @@
 package catalog
 
-import "github.com/modelcontextprotocol/go-sdk/mcp"
+import (
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
 
 // RewriteCallToolResult clones a tool result and rewrites supported resource identities.
 func (c *Catalog) RewriteCallToolResult(prefix string, result *mcp.CallToolResult) *mcp.CallToolResult {

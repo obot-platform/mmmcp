@@ -10,7 +10,14 @@ import (
 	"github.com/obot-platform/mmmcp/component"
 )
 
-const defaultIdleTimeout = 30 * time.Second
+const (
+	defaultIdleTimeout = 30 * time.Second
+)
+
+var (
+	_ component.Runtime                 = (*manager)(nil)
+	_ component.FrontendActivityRuntime = (*manager)(nil)
+)
 
 type manager struct {
 	open        func(context.Context) (component.Runtime, error)
@@ -204,6 +211,3 @@ func (m *manager) Close() error {
 	}
 	return nil
 }
-
-var _ component.Runtime = (*manager)(nil)
-var _ component.FrontendActivityRuntime = (*manager)(nil)

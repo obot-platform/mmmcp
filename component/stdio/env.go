@@ -6,11 +6,12 @@ import (
 	"sort"
 )
 
-var baselineNames = []string{
-	"PATH", "PWD", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "LC_CTYPE", "TZ",
-}
-
-var windowsLaunchNames = []string{"SystemRoot", "WINDIR", "ComSpec", "PATHEXT"}
+var (
+	baselineNames = []string{
+		"PATH", "PWD", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "LC_CTYPE", "TZ",
+	}
+	windowsLaunchNames = []string{"SystemRoot", "WINDIR", "ComSpec", "PATHEXT"}
+)
 
 // Environment builds a non-nil child environment from an allow-listed host
 // baseline and explicit component values. Explicit values are appended last.

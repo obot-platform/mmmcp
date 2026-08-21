@@ -4,8 +4,10 @@ run:
 linters:
   default: none
   enable:
+    - decorder
     - errcheck
     - govet
+    - grouper
     - importas
     - ineffassign
     - modernize
@@ -35,6 +37,35 @@ linters:
           alias: kclient
         - pkg: k8s.io/apimachinery/pkg/api/errors
           alias: apierrors
+    decorder:
+      dec-order:
+        - const
+        - var
+        - type
+        - func
+      # If true, order of declarations is not checked at all.
+      disable-dec-order-check: false
+      # If true, `init` func can be anywhere in file (does not have to be declared before all other functions).
+      disable-init-func-first-check: false
+      # If true, multiple global `type`, `const` and `var` declarations are allowed.
+      disable-dec-num-check: false
+      # If true, type declarations will be ignored for dec num check.
+      disable-type-dec-num-check: true
+    grouper:
+      # Require the use of a single global 'const' declaration only.
+      const-require-single-const: true
+      # Require the use of grouped global 'const' declarations.
+      const-require-grouping: true
+      # Require the use of a single 'import' declaration only.
+      import-require-single-import: true
+      # Require the use of grouped 'import' declarations.
+      import-require-grouping: true
+      # Require the use of a single global 'var' declaration only.
+      var-require-single-var: true
+      # Require the use of grouped global 'var' declarations.
+      var-require-grouping: true
+
+
 formatters:
   enable:
     - gofmt

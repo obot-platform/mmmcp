@@ -20,6 +20,17 @@ import (
 	"github.com/obot-platform/mmmcp/config"
 )
 
+var (
+	stdioHelperOnce sync.Once
+	stdioHelperPath string
+	stdioHelperErr  error
+)
+
+type stdioInfo struct {
+	PID int               `json:"pid"`
+	Env map[string]string `json:"env"`
+}
+
 func TestCompositeStdioStatelessUsesFreshProcessesAndSanitizedEnvironment(t *testing.T) {
 	lookup := map[string]string{
 		"PATH":                       os.Getenv("PATH"),
@@ -134,22 +145,11 @@ func TestCompositeStdioActiveCallDefersIdleRetirementAndCancellation(t *testing.
 	time.Sleep(100 * time.Millisecond)
 }
 
-type stdioInfo struct {
-	PID int               `json:"pid"`
-	Env map[string]string `json:"env"`
-}
-
 func stdioServerConfig(explicit map[string]string) config.Server {
 	env := make(map[string]string)
 	maps.Copy(env, explicit)
 	return config.Server{Name: "fixture", Command: stdioHelperBinary(), Env: env}
 }
-
-var (
-	stdioHelperOnce sync.Once
-	stdioHelperPath string
-	stdioHelperErr  error
-)
 
 func stdioHelperBinary() string {
 	stdioHelperOnce.Do(func() {

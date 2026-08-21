@@ -16,6 +16,17 @@ import (
 	"github.com/obot-platform/mmmcp/testserver"
 )
 
+type authorizationResponseRecorder struct {
+	base http.RoundTripper
+	mu   sync.Mutex
+	auth []recordedAuthorizationResponse
+}
+
+type recordedAuthorizationResponse struct {
+	status    int
+	challenge string
+}
+
 func TestCompositePropagatesComponentAuthorizationResponse(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -102,17 +113,6 @@ func testHTTPServer(t *testing.T, handler http.Handler) *httptest.Server {
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	return server
-}
-
-type authorizationResponseRecorder struct {
-	base http.RoundTripper
-	mu   sync.Mutex
-	auth []recordedAuthorizationResponse
-}
-
-type recordedAuthorizationResponse struct {
-	status    int
-	challenge string
 }
 
 func (r *authorizationResponseRecorder) RoundTrip(request *http.Request) (*http.Response, error) {

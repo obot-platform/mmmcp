@@ -1,6 +1,8 @@
 package config
 
-import "time"
+import (
+	"time"
+)
 
 // Config is a complete composite server configuration.
 type Config struct {

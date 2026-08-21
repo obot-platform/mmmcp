@@ -10,6 +10,15 @@ import (
 	"golang.org/x/oauth2"
 )
 
+type tokenSequence struct {
+	tokens []*oauth2.Token
+	next   int
+}
+
+type recordingTokenStore struct {
+	tokens []*oauth2.Token
+}
+
 func TestPersistentTokenSourceStoresInitialAndRefreshedTokens(t *testing.T) {
 	initial := (&oauth2.Token{
 		AccessToken:  "access-1",
@@ -62,11 +71,6 @@ func TestPersistentTokenSourceReturnsStorageFailure(t *testing.T) {
 	}
 }
 
-type tokenSequence struct {
-	tokens []*oauth2.Token
-	next   int
-}
-
 func (s *tokenSequence) Token() (*oauth2.Token, error) {
 	if s.next >= len(s.tokens) {
 		return s.tokens[len(s.tokens)-1], nil
@@ -74,10 +78,6 @@ func (s *tokenSequence) Token() (*oauth2.Token, error) {
 	token := s.tokens[s.next]
 	s.next++
 	return token, nil
-}
-
-type recordingTokenStore struct {
-	tokens []*oauth2.Token
 }
 
 func (s *recordingTokenStore) StoreToken(_ context.Context, token *oauth2.Token) error {
