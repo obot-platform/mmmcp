@@ -86,7 +86,7 @@ func compileTools(c *Catalog, server config.Server, prefix string, discovered []
 		c.tools = append(c.tools, &clone)
 		c.toolRoutes[name] = ToolRoute{Component: server, Prefix: prefix, OriginalName: tool.Name}
 	}
-	return undiscovered(server.Name, "tool", overrides, seen)
+	return nil
 }
 
 func compilePrompts(c *Catalog, server config.Server, prefix string, discovered []*mcp.Prompt) error {
@@ -126,7 +126,7 @@ func compilePrompts(c *Catalog, server config.Server, prefix string, discovered 
 		c.prompts = append(c.prompts, &clone)
 		c.promptRoutes[name] = PromptRoute{Component: server, Prefix: prefix, OriginalName: prompt.Name}
 	}
-	return undiscovered(server.Name, "prompt", overrides, seen)
+	return nil
 }
 
 func compileResources(c *Catalog, server config.Server, prefix string, discovered []*mcp.Resource) error {
@@ -169,7 +169,7 @@ func compileResources(c *Catalog, server config.Server, prefix string, discovere
 		c.resources = append(c.resources, &clone)
 		c.resourceRoutes[uri] = ResourceRoute{Component: server, Prefix: prefix, OriginalURI: resource.URI, CompositeURI: uri}
 	}
-	return undiscovered(server.Name, "resource", overrides, seen)
+	return nil
 }
 
 func compileTemplates(c *Catalog, owners map[string]string, server config.Server, prefix string, discovered []*mcp.ResourceTemplate) error {
@@ -215,7 +215,7 @@ func compileTemplates(c *Catalog, owners map[string]string, server config.Server
 		owners[uri] = server.Name
 		c.templateRoutes = append(c.templateRoutes, ResourceTemplateRoute{Component: server, Prefix: prefix, OriginalTemplate: template.URITemplate, CompositeTemplate: uri, exposed: exposed, original: original})
 	}
-	return undiscovered(server.Name, "resource template", overrides, seen)
+	return nil
 }
 
 func keyedOverrides[T any](componentName, family string, values []T, key func(T) string) (map[string]T, error) {
@@ -228,15 +228,6 @@ func keyedOverrides[T any](componentName, family string, values []T, key func(T)
 		result[identity] = value
 	}
 	return result, nil
-}
-
-func undiscovered[T any](componentName, family string, overrides map[string]T, seen map[string]bool) error {
-	for identity := range overrides {
-		if !seen[identity] {
-			return fmt.Errorf("component %q %s override %q references an undiscovered feature", componentName, family, identity)
-		}
-	}
-	return nil
 }
 
 func collision(family, identity, first, second string) error {

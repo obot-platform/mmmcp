@@ -137,7 +137,6 @@ func TestCompileRejectsInvalidOverridesAndFinalCollisions(t *testing.T) {
 		want      string
 	}{
 		{"duplicate override identity", config.Server{Tools: []config.ToolOverride{{Name: "one", Enabled: true}, {Name: "one", Enabled: true}}}, "duplicate tool override"},
-		{"undiscovered override", config.Server{Prompts: []config.PromptOverride{{Name: "missing", Enabled: true}}}, "undiscovered feature"},
 		{"tool final collision", config.Server{Tools: []config.ToolOverride{{Name: "one", OverrideName: "same", Enabled: true}, {Name: "two", OverrideName: "same", Enabled: true}}}, "tool name"},
 		{"resource final collision", config.Server{Resources: []config.ResourceOverride{{URI: "file:///one", OverrideURI: "file:///same", Enabled: true}, {URI: "file:///two", OverrideURI: "file:///same", Enabled: true}}}, "resource URI"},
 	}
@@ -150,6 +149,31 @@ func TestCompileRejectsInvalidOverridesAndFinalCollisions(t *testing.T) {
 				t.Fatalf("Compile error = %v, want %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestCompileIgnoresOverridesForUndiscoveredFeatures(t *testing.T) {
+	features := &component.Features{
+		Tools:             []*mcp.Tool{{Name: "tool", InputSchema: map[string]any{"type": "object"}}},
+		Prompts:           []*mcp.Prompt{{Name: "prompt"}},
+		Resources:         []*mcp.Resource{{URI: "file:///resource", Name: "resource"}},
+		ResourceTemplates: []*mcp.ResourceTemplate{{URITemplate: "file:///{path}", Name: "template"}},
+	}
+	server := config.Server{
+		Name:              "fixture",
+		URL:               "https://example.invalid",
+		Tools:             []config.ToolOverride{{Name: "missing", Enabled: true}},
+		Prompts:           []config.PromptOverride{{Name: "missing", Enabled: true}},
+		Resources:         []config.ResourceOverride{{URI: "file:///missing", Enabled: true}},
+		ResourceTemplates: []config.ResourceTemplateOverride{{URITemplate: "file:///missing/{path}", Enabled: true}},
+	}
+
+	compiled, err := catalog.Compile(t.Context(), &config.Config{Servers: []config.Server{server}}, featureDiscoverer{features: map[string]*component.Features{"fixture": features}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Tools()) != 1 || len(compiled.Prompts()) != 1 || len(compiled.Resources()) != 1 || len(compiled.ResourceTemplates()) != 1 {
+		t.Fatal("discovered features were not preserved")
 	}
 }
 
