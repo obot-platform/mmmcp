@@ -127,6 +127,10 @@ func classifySQLiteDSN(input string, options Options) (sqliteDSN, error) {
 }
 
 func normalizeSQLiteURL(value string) (string, string, error) {
+	// Drop the redundant inner file: scheme, which url.Parse would read as an authority.
+	if rest, ok := strings.CutPrefix(value, "sqlite://file:"); ok {
+		value = "sqlite://" + rest
+	}
 	parsed, err := url.Parse(value)
 	if err != nil || !strings.EqualFold(parsed.Scheme, "sqlite") || parsed.User != nil || parsed.Fragment != "" {
 		return "", "", errors.New("storage: invalid SQLite DSN")
