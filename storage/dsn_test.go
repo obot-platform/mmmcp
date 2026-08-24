@@ -10,6 +10,7 @@ func TestClassifySQLiteDSNForms(t *testing.T) {
 	dataDirectory := t.TempDir()
 	plainPath := filepath.Join(t.TempDir(), "plain.db")
 	filePath := filepath.Join(t.TempDir(), "file.db")
+	nestedPath := filepath.Join(t.TempDir(), "nested.db")
 	tests := []struct {
 		name      string
 		input     string
@@ -19,6 +20,7 @@ func TestClassifySQLiteDSNForms(t *testing.T) {
 		{name: "empty default", wantPath: filepath.Join(dataDirectory, "mmmcp.db"), wantValue: "mmmcp.db"},
 		{name: "plain path", input: plainPath, wantPath: plainPath, wantValue: "plain.db"},
 		{name: "file URI", input: fileDSN(filePath), wantPath: filepath.ToSlash(filePath), wantValue: "file.db"},
+		{name: "nested file URI", input: "sqlite://file:" + nestedPath, wantPath: filepath.ToSlash(nestedPath), wantValue: "nested.db"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -54,6 +56,7 @@ func TestClassifyDSNAcceptsSupportedDialects(t *testing.T) {
 	}{
 		{name: "empty SQLite", dialect: DialectSQLite, driver: "sqlite"},
 		{name: "SQLite URL", input: "sqlite:///tmp/mmmcp.db", dialect: DialectSQLite, driver: "sqlite"},
+		{name: "SQLite URL with nested file URI", input: "sqlite://file:mmmcp.db?_journal=WAL&cache=shared", dialect: DialectSQLite, driver: "sqlite"},
 		{name: "PostgreSQL URL", input: "postgres://user:secret@localhost/mmmcp?sslmode=disable", dialect: DialectPostgres, driver: "pgx"},
 		{name: "PostgreSQL keyword", input: "host=localhost port=5432 user=user password=secret dbname=mmmcp sslmode=disable", dialect: DialectPostgres, driver: "pgx"},
 		{name: "MySQL URL", input: "mysql://user:secret@localhost:3306/mmmcp?parseTime=true", dialect: DialectMySQL, driver: "mysql"},
