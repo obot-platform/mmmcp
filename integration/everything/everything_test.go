@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -114,7 +115,10 @@ servers:
 			t.Fatalf("connect to mmmcp: %v\n%s", err, stderr.String())
 		}
 		defer func() {
-			if err := session.Close(); err != nil {
+			// CommandTransport can reap a cleanly exited process just after its
+			// termination timer fires. In that case Close reports ErrProcessDone
+			// even though the requested shutdown has completed successfully.
+			if err := session.Close(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 				t.Errorf("close mmmcp stdio session: %v", err)
 			}
 			if t.Failed() {
