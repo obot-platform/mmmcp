@@ -2,8 +2,11 @@ package catalog_test
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/obot-platform/mmmcp/catalog"
@@ -13,6 +16,156 @@ import (
 
 type featureDiscoverer struct {
 	features map[string]*component.Features
+}
+
+type gatedDiscoverer struct {
+	started chan string
+	release chan struct{}
+	active  atomic.Int32
+	maximum atomic.Int32
+}
+
+type failFastDiscoverer struct {
+	blockedStarted  chan struct{}
+	blockedCanceled chan struct{}
+	failure         error
+	nilFeatures     bool
+	malformed       bool
+}
+
+func (d *failFastDiscoverer) Discover(ctx context.Context, server config.Server) (*component.Features, error) {
+	switch server.Name {
+	case "blocked":
+		close(d.blockedStarted)
+		<-ctx.Done()
+		close(d.blockedCanceled)
+		return nil, ctx.Err()
+	case "failing":
+		<-d.blockedStarted
+		if d.nilFeatures {
+			return nil, nil
+		}
+		if d.malformed {
+			return &component.Features{Tools: []*mcp.Tool{nil}}, nil
+		}
+		return nil, d.failure
+	default:
+		return &component.Features{}, nil
+	}
+}
+
+func (d *gatedDiscoverer) Discover(ctx context.Context, server config.Server) (*component.Features, error) {
+	active := d.active.Add(1)
+	for {
+		maximum := d.maximum.Load()
+		if active <= maximum || d.maximum.CompareAndSwap(maximum, active) {
+			break
+		}
+	}
+	d.started <- server.Name
+	select {
+	case <-d.release:
+	case <-ctx.Done():
+		d.active.Add(-1)
+		return nil, ctx.Err()
+	}
+	d.active.Add(-1)
+	return &component.Features{Tools: []*mcp.Tool{{Name: "tool", InputSchema: map[string]any{"type": "object"}}}}, nil
+}
+
+func TestCompileDiscoversComponentsInBoundedParallel(t *testing.T) {
+	const parallelism = 8
+	discoverer := &gatedDiscoverer{
+		started: make(chan string, parallelism),
+		release: make(chan struct{}),
+	}
+	defer func() {
+		select {
+		case <-discoverer.release:
+		default:
+			close(discoverer.release)
+		}
+	}()
+
+	servers := make([]config.Server, parallelism+2)
+	for i := range servers {
+		servers[i] = config.Server{Name: string(rune('a' + i)), URL: "https://example.invalid"}
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := catalog.Compile(t.Context(), &config.Config{Servers: servers}, discoverer)
+		done <- err
+	}()
+
+	for range parallelism {
+		select {
+		case <-discoverer.started:
+		case <-time.After(time.Second):
+			t.Fatal("component discoveries did not start in parallel")
+		}
+	}
+	if got := discoverer.maximum.Load(); got != parallelism {
+		t.Fatalf("maximum parallel discoveries = %d, want %d", got, parallelism)
+	}
+	close(discoverer.release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("catalog compilation did not finish")
+	}
+}
+
+func TestCompileCancelsBlockedDiscoveryAfterInvalidComponentResult(t *testing.T) {
+	failure := errors.New("discovery failed")
+	for _, test := range []struct {
+		name        string
+		nilFeatures bool
+		malformed   bool
+		want        string
+	}{
+		{name: "error"},
+		{name: "nil features", nilFeatures: true, want: `component "failing" returned nil features`},
+		{name: "malformed features", malformed: true, want: `component "failing" returned a nil tool`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			discoverer := &failFastDiscoverer{
+				blockedStarted:  make(chan struct{}),
+				blockedCanceled: make(chan struct{}),
+				failure:         failure,
+				nilFeatures:     test.nilFeatures,
+				malformed:       test.malformed,
+			}
+			done := make(chan error, 1)
+			go func() {
+				_, err := catalog.Compile(t.Context(), &config.Config{Servers: []config.Server{
+					{Name: "blocked", URL: "https://blocked.invalid"},
+					{Name: "failing", URL: "https://failing.invalid"},
+				}}, discoverer)
+				done <- err
+			}()
+
+			select {
+			case err := <-done:
+				if test.want != "" {
+					if err == nil || !strings.Contains(err.Error(), test.want) {
+						t.Fatalf("Compile error = %v, want %q", err, test.want)
+					}
+				} else if !errors.Is(err, failure) {
+					t.Fatalf("Compile error = %v, want %v", err, failure)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("catalog compilation did not fail fast")
+			}
+			select {
+			case <-discoverer.blockedCanceled:
+			case <-time.After(time.Second):
+				t.Fatal("blocked discovery was not canceled")
+			}
+		})
+	}
 }
 
 func TestCompileAllFeaturesAppliesOverridesBeforeNamespace(t *testing.T) {

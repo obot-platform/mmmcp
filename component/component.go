@@ -27,6 +27,7 @@ type Features struct {
 
 // Discoverer discovers every supported feature exposed by a component.
 type Discoverer interface {
+	// Discover may be called concurrently and must be safe for concurrent use.
 	Discover(context.Context, config.Server) (*Features, error)
 }
 
