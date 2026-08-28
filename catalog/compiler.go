@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/obot-platform/mmmcp/component"
@@ -11,42 +12,112 @@ import (
 	"github.com/yosida95/uritemplate/v3"
 )
 
+const (
+	// maxParallelDiscoveries bounds simultaneous network connections and child processes.
+	maxParallelDiscoveries = 8
+)
+
+type discoveryResult struct {
+	features *component.Features
+}
+
 func compile(ctx context.Context, cfg *config.Config, discoverer component.Discoverer) (*Catalog, error) {
-	result := &Catalog{
-		toolRoutes: make(map[string]ToolRoute), promptRoutes: make(map[string]PromptRoute),
-		resourceRoutes: make(map[string]ResourceRoute),
+	result := newCompileCatalog()
+	prefixes := make([]string, len(cfg.Servers))
+	for i, server := range cfg.Servers {
+		if len(cfg.Servers) <= 1 && server.Prefix == "" {
+			continue
+		}
+		prefix, err := namespace.Prefix(server.Name, server.Prefix)
+		if err != nil {
+			return nil, fmt.Errorf("component %q: %w", server.Name, err)
+		}
+		prefixes[i] = prefix
+	}
+
+	discovered, err := discoverComponents(ctx, cfg.Servers, prefixes, discoverer)
+	if err != nil {
+		return nil, err
 	}
 	templateOwners := make(map[string]string)
-	for _, server := range cfg.Servers {
-		prefix := ""
-		if len(cfg.Servers) > 1 || server.Prefix != "" {
-			var err error
-			prefix, err = namespace.Prefix(server.Name, server.Prefix)
-			if err != nil {
-				return nil, fmt.Errorf("component %q: %w", server.Name, err)
-			}
-		}
-		features, err := discoverer.Discover(ctx, server)
-		if err != nil {
-			return nil, err
-		}
-		if features == nil {
-			return nil, fmt.Errorf("component %q returned nil features", server.Name)
-		}
-		if err := compileTools(result, server, prefix, features.Tools); err != nil {
-			return nil, err
-		}
-		if err := compilePrompts(result, server, prefix, features.Prompts); err != nil {
-			return nil, err
-		}
-		if err := compileResources(result, server, prefix, features.Resources); err != nil {
-			return nil, err
-		}
-		if err := compileTemplates(result, templateOwners, server, prefix, features.ResourceTemplates); err != nil {
+	for i, server := range cfg.Servers {
+		if err := compileComponent(result, templateOwners, server, prefixes[i], discovered[i].features); err != nil {
 			return nil, err
 		}
 	}
 	return newCatalog(result)
+}
+
+func newCompileCatalog() *Catalog {
+	return &Catalog{
+		toolRoutes: make(map[string]ToolRoute), promptRoutes: make(map[string]PromptRoute),
+		resourceRoutes: make(map[string]ResourceRoute),
+	}
+}
+
+func compileComponent(result *Catalog, templateOwners map[string]string, server config.Server, prefix string, features *component.Features) error {
+	if err := compileTools(result, server, prefix, features.Tools); err != nil {
+		return err
+	}
+	if err := compilePrompts(result, server, prefix, features.Prompts); err != nil {
+		return err
+	}
+	if err := compileResources(result, server, prefix, features.Resources); err != nil {
+		return err
+	}
+	return compileTemplates(result, templateOwners, server, prefix, features.ResourceTemplates)
+}
+
+func validateComponent(server config.Server, prefix string, features *component.Features) error {
+	return compileComponent(newCompileCatalog(), make(map[string]string), server, prefix, features)
+}
+
+func discoverComponents(ctx context.Context, servers []config.Server, prefixes []string, discoverer component.Discoverer) ([]discoveryResult, error) {
+	results := make([]discoveryResult, len(servers))
+	if len(servers) == 0 {
+		return results, nil
+	}
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+
+	workerCount := min(len(servers), maxParallelDiscoveries)
+	var (
+		nextMu  sync.Mutex
+		workers sync.WaitGroup
+		next    int
+	)
+	for range workerCount {
+		workers.Go(func() {
+			for {
+				nextMu.Lock()
+				if ctx.Err() != nil || next >= len(servers) {
+					nextMu.Unlock()
+					return
+				}
+				i := next
+				next++
+				nextMu.Unlock()
+
+				features, err := discoverer.Discover(ctx, servers[i])
+				if err == nil && features == nil {
+					err = fmt.Errorf("component %q returned nil features", servers[i].Name)
+				}
+				if err == nil {
+					err = validateComponent(servers[i], prefixes[i], features)
+				}
+				if err != nil {
+					cancel(err)
+					return
+				}
+				results[i].features = features
+			}
+		})
+	}
+	workers.Wait()
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
 func compileTools(c *Catalog, server config.Server, prefix string, discovered []*mcp.Tool) error {
