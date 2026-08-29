@@ -39,6 +39,12 @@ func compile(ctx context.Context, cfg *config.Config, discoverer component.Disco
 	if err != nil {
 		return nil, err
 	}
+	if len(discovered) == 1 && discovered[0].features.ServerInfo != nil {
+		result.serverInfo = &mcp.Implementation{
+			Name:    discovered[0].features.ServerInfo.Name,
+			Version: discovered[0].features.ServerInfo.Version,
+		}
+	}
 	templateOwners := make(map[string]string)
 	for i, server := range cfg.Servers {
 		if err := compileComponent(result, templateOwners, server, prefixes[i], discovered[i].features); err != nil {

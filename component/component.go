@@ -19,6 +19,7 @@ const (
 
 // Features is a complete component discovery snapshot.
 type Features struct {
+	ServerInfo        *mcp.Implementation
 	Tools             []*mcp.Tool
 	Prompts           []*mcp.Prompt
 	Resources         []*mcp.Resource

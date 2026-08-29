@@ -75,7 +75,12 @@ func (d *durationValue) UnmarshalYAML(node *yaml.Node) error {
 }
 
 func (d configDTO) runtime(lookup func(string) (string, bool)) (*Config, error) {
-	cfg := &Config{Listen: d.Listen, IdleTimeout: d.IdleTimeout.runtime()}
+	cfg := &Config{
+		Name:        strings.TrimSpace(d.Name),
+		Version:     strings.TrimSpace(d.Version),
+		Listen:      d.Listen,
+		IdleTimeout: d.IdleTimeout.runtime(),
+	}
 	if len(d.Servers) == 0 {
 		return nil, errors.New("servers: at least one component is required")
 	}

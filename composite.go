@@ -39,6 +39,7 @@ type Composite struct {
 	defaultStore              storage.Store
 	events                    *storage.EventAdapter
 	serverOptions             Options
+	implementation            mcp.Implementation
 	startedAt                 time.Time
 	defaultCatalogFingerprint string
 	catalogDegraded           atomic.Bool
@@ -71,7 +72,7 @@ func New(ctx context.Context, cfg *config.Config, opts Options) (*Composite, err
 	})
 	factory := component.NewRoutingFactory(httpFactory, stdioFactory)
 	registry := catalog.NewRegistry(factory)
-	_, defaultCatalogFingerprint, err := registry.Get(ctx, cfg)
+	defaultCatalog, defaultCatalogFingerprint, err := registry.Get(ctx, cfg)
 	if err != nil {
 		_ = factory.Close()
 		_ = stores.Close()
@@ -87,6 +88,7 @@ func New(ctx context.Context, cfg *config.Config, opts Options) (*Composite, err
 		stores:                    stores,
 		defaultStore:              defaultStore,
 		serverOptions:             opts,
+		implementation:            frontendImplementation(cfg, defaultCatalog),
 		startedAt:                 time.Now(),
 		defaultCatalogFingerprint: defaultCatalogFingerprint,
 		stdioCancels:              make(map[uint64]context.CancelFunc),
@@ -127,7 +129,8 @@ func (c *Composite) Close() error {
 }
 
 func newFrontendServer(c *Composite, opts Options) *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: implementationName, Version: implementationVersion}, &mcp.ServerOptions{
+	implementation := c.implementation
+	server := mcp.NewServer(&implementation, &mcp.ServerOptions{
 		Logger: opts.Logger,
 		Capabilities: &mcp.ServerCapabilities{
 			Tools:     &mcp.ToolCapabilities{ListChanged: true},
@@ -140,4 +143,22 @@ func newFrontendServer(c *Composite, opts Options) *mcp.Server {
 	})
 	server.AddReceivingMiddleware(c.bindFrontendServer(server), c.configMiddleware(), c.featureMiddleware())
 	return server
+}
+
+func frontendImplementation(cfg *config.Config, discovered *catalog.Catalog) mcp.Implementation {
+	implementation := mcp.Implementation{Name: implementationName, Version: implementationVersion}
+	if len(cfg.Servers) == 1 {
+		if serverInfo := discovered.ServerInfo(); serverInfo != nil {
+			implementation.Name = serverInfo.Name
+			implementation.Version = serverInfo.Version
+		}
+		return implementation
+	}
+	if cfg.Name != "" {
+		implementation.Name = cfg.Name
+	}
+	if cfg.Version != "" {
+		implementation.Version = cfg.Version
+	}
+	return implementation
 }

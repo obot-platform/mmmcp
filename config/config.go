@@ -6,6 +6,8 @@ import (
 
 // Config is a complete composite server configuration.
 type Config struct {
+	Name        string
+	Version     string
 	Listen      string
 	IdleTimeout time.Duration
 	Servers     []Server
@@ -70,6 +72,8 @@ type ResourceTemplateOverride struct {
 }
 
 type configDTO struct {
+	Name        string        `yaml:"name"`
+	Version     string        `yaml:"version"`
 	Listen      string        `yaml:"listen"`
 	IdleTimeout durationValue `yaml:"idleTimeout"`
 	Servers     []serverDTO   `yaml:"servers"`
