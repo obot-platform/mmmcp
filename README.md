@@ -16,6 +16,8 @@ environment variables, duplicate component names, invalid overrides, failed
 component discovery, and final identity collisions stop startup.
 
 ```yaml
+name: company-mcp
+version: 1.0.0
 listen: 127.0.0.1:8080
 idleTimeout: 30s
 servers:
@@ -47,8 +49,11 @@ servers:
 `${NAME}` interpolation is supported in component URLs and headers,
 commands, arguments, working directories, and explicit environment values.
 Missing variables expand to an empty string. `$$` emits a literal dollar sign.
-The `listen` address, prefixes, override metadata, and component names are not
-interpolated.
+The `name`, `version`, and `listen` fields, prefixes, override metadata, and
+component names are not interpolated. When exactly one component is configured,
+the frontend reports that component server's MCP name and version. With multiple
+components, the optional top-level `name` and `version` are reported, defaulting
+to `mmmcp` and `dev` when omitted.
 For remote components, `passthroughHeaders` copies the named headers from each
 incoming HTTP request to the downstream MCP request. Explicit values in
 `headers` take precedence when both settings name the same header.

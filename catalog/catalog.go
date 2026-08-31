@@ -14,6 +14,7 @@ import (
 // Catalog is an immutable, sorted composite feature snapshot.
 type Catalog struct {
 	id                string
+	serverInfo        *mcp.Implementation
 	tools             []*mcp.Tool
 	prompts           []*mcp.Prompt
 	resources         []*mcp.Resource
@@ -22,6 +23,14 @@ type Catalog struct {
 	promptRoutes      map[string]PromptRoute
 	resourceRoutes    map[string]ResourceRoute
 	templateRoutes    []ResourceTemplateRoute
+}
+
+// ServerInfo returns the single component's MCP implementation metadata.
+func (c *Catalog) ServerInfo() *mcp.Implementation {
+	if c == nil || c.serverInfo == nil {
+		return nil
+	}
+	return &mcp.Implementation{Name: c.serverInfo.Name, Version: c.serverInfo.Version}
 }
 
 // Tools returns a copy of the sorted tool slice.

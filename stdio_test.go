@@ -67,6 +67,51 @@ func TestRunPersistentUsesProcessScopedContextConfig(t *testing.T) {
 	}
 }
 
+func TestRunPersistentUsesProcessScopedServerIdentity(t *testing.T) {
+	fixture := testserver.New(t, testserver.Options{})
+	composite, err := New(t.Context(), &config.Config{Servers: []config.Server{{Name: "default", URL: fixture.URL}}}, Options{
+		Storage: storage.Options{DataDirectory: t.TempDir()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer composite.Close()
+
+	selected := &config.Config{
+		Name: "selected-stdio", Version: "4.5.6",
+		Servers: []config.Server{{Name: "first", URL: fixture.URL}, {Name: "second", URL: fixture.URL}},
+	}
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	runCtx, cancel := context.WithCancel(ContextWithConfig(t.Context(), selected))
+	defer cancel()
+	runDone := make(chan error, 1)
+	go func() { runDone <- composite.runPersistent(runCtx, serverTransport) }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "stdio-identity-test", Version: "1.0.0"}, nil)
+	session, err := client.Connect(t.Context(), clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialized := session.InitializeResult()
+	if initialized == nil || initialized.ServerInfo == nil {
+		t.Fatal("frontend returned no server info")
+	}
+	if info := initialized.ServerInfo; info.Name != "selected-stdio" || info.Version != "4.5.6" {
+		t.Fatalf("server info = %+v, want selected-stdio/4.5.6", info)
+	}
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-runDone:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("RunStdio error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("persistent server did not stop after client close")
+	}
+}
+
 func TestCloseStopsPersistentFrontend(t *testing.T) {
 	fixture := testserver.New(t, testserver.Options{Tools: []testserver.Tool{{
 		Definition: &mcp.Tool{Name: "tool", InputSchema: map[string]any{"type": "object"}},

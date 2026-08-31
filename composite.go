@@ -126,8 +126,8 @@ func (c *Composite) Close() error {
 	return errors.Join(c.pool.Close(), c.factory.Close(), c.stores.Close())
 }
 
-func newFrontendServer(c *Composite, opts Options) *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: implementationName, Version: implementationVersion}, &mcp.ServerOptions{
+func newFrontendServer(c *Composite, opts Options, implementation mcp.Implementation) *mcp.Server {
+	server := mcp.NewServer(&implementation, &mcp.ServerOptions{
 		Logger: opts.Logger,
 		Capabilities: &mcp.ServerCapabilities{
 			Tools:     &mcp.ToolCapabilities{ListChanged: true},
@@ -140,4 +140,22 @@ func newFrontendServer(c *Composite, opts Options) *mcp.Server {
 	})
 	server.AddReceivingMiddleware(c.bindFrontendServer(server), c.configMiddleware(), c.featureMiddleware())
 	return server
+}
+
+func frontendImplementation(cfg *config.Config, discovered *catalog.Catalog) mcp.Implementation {
+	implementation := mcp.Implementation{Name: implementationName, Version: implementationVersion}
+	if len(cfg.Servers) == 1 {
+		if serverInfo := discovered.ServerInfo(); serverInfo != nil {
+			implementation.Name = serverInfo.Name
+			implementation.Version = serverInfo.Version
+		}
+		return implementation
+	}
+	if cfg.Name != "" {
+		implementation.Name = cfg.Name
+	}
+	if cfg.Version != "" {
+		implementation.Version = cfg.Version
+	}
+	return implementation
 }

@@ -17,6 +17,8 @@ func TestLoadStrictInterpolationAndDefaults(t *testing.T) {
 	cfg, err := Load([]byte(`
 listen: 127.0.0.1:8080
 idleTimeout: 30s
+name: public-mcp
+version: 2.3.4
 servers:
   - name: local files
     url: https://example.invalid/${ROOT}
@@ -49,6 +51,8 @@ servers:
 	}
 
 	want := &Config{
+		Name:        "public-mcp",
+		Version:     "2.3.4",
 		Listen:      "127.0.0.1:8080",
 		IdleTimeout: 30 * time.Second,
 		Servers: []Server{

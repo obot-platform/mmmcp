@@ -65,6 +65,12 @@ func (f *Factory) Discover(ctx context.Context, server config.Server) (*componen
 	}
 	defer runtime.Close()
 	features := new(component.Features)
+	if initialized := runtime.session.InitializeResult(); initialized != nil && initialized.ServerInfo != nil {
+		features.ServerInfo = &mcp.Implementation{
+			Name:    initialized.ServerInfo.Name,
+			Version: initialized.ServerInfo.Version,
+		}
+	}
 	if err := paginate(server.Name, "tools/list", func(cursor string) (string, error) {
 		result, err := runtime.session.ListTools(ctx, &mcp.ListToolsParams{Cursor: cursor})
 		if err == nil {
