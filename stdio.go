@@ -45,6 +45,11 @@ func (c *Composite) runPersistent(ctx context.Context, transport mcp.Transport) 
 		c.stdioWG.Done()
 	}()
 
-	server := newFrontendServer(c, c.serverOptions)
+	cfg := effectiveConfig(runCtx, c.defaultConfig)
+	compiled, _, err := c.registry.Get(runCtx, cfg)
+	if err != nil {
+		return err
+	}
+	server := newFrontendServer(c, c.serverOptions, frontendImplementation(cfg, compiled))
 	return server.Run(runCtx, transport)
 }

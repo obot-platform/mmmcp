@@ -39,7 +39,6 @@ type Composite struct {
 	defaultStore              storage.Store
 	events                    *storage.EventAdapter
 	serverOptions             Options
-	implementation            mcp.Implementation
 	startedAt                 time.Time
 	defaultCatalogFingerprint string
 	catalogDegraded           atomic.Bool
@@ -72,7 +71,7 @@ func New(ctx context.Context, cfg *config.Config, opts Options) (*Composite, err
 	})
 	factory := component.NewRoutingFactory(httpFactory, stdioFactory)
 	registry := catalog.NewRegistry(factory)
-	defaultCatalog, defaultCatalogFingerprint, err := registry.Get(ctx, cfg)
+	_, defaultCatalogFingerprint, err := registry.Get(ctx, cfg)
 	if err != nil {
 		_ = factory.Close()
 		_ = stores.Close()
@@ -88,7 +87,6 @@ func New(ctx context.Context, cfg *config.Config, opts Options) (*Composite, err
 		stores:                    stores,
 		defaultStore:              defaultStore,
 		serverOptions:             opts,
-		implementation:            frontendImplementation(cfg, defaultCatalog),
 		startedAt:                 time.Now(),
 		defaultCatalogFingerprint: defaultCatalogFingerprint,
 		stdioCancels:              make(map[uint64]context.CancelFunc),
@@ -128,8 +126,7 @@ func (c *Composite) Close() error {
 	return errors.Join(c.pool.Close(), c.factory.Close(), c.stores.Close())
 }
 
-func newFrontendServer(c *Composite, opts Options) *mcp.Server {
-	implementation := c.implementation
+func newFrontendServer(c *Composite, opts Options, implementation mcp.Implementation) *mcp.Server {
 	server := mcp.NewServer(&implementation, &mcp.ServerOptions{
 		Logger: opts.Logger,
 		Capabilities: &mcp.ServerCapabilities{
