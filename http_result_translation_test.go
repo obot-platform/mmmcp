@@ -21,6 +21,38 @@ type operationWireCase struct {
 	params map[string]any
 }
 
+func TestEmptyListResultsAreArrays(t *testing.T) {
+	composite, err := mmmcp.New(t.Context(), &config.Config{}, mmmcp.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = composite.Close() })
+	frontend := httptest.NewServer(composite.HTTPHandler())
+	t.Cleanup(frontend.Close)
+	for _, version := range []string{"2025-11-25", "2026-07-28"} {
+		t.Run(version, func(t *testing.T) {
+			var sessionID string
+			var meta map[string]any
+			if version == "2025-11-25" {
+				sessionID = initializeLegacyRawSession(t, frontend)
+			} else {
+				meta = map[string]any{mcp.MetaKeyProtocolVersion: version, mcp.MetaKeyClientCapabilities: map[string]any{}}
+			}
+			for method, field := range map[string]string{
+				"tools/list":               "tools",
+				"prompts/list":             "prompts",
+				"resources/list":           "resources",
+				"resources/templates/list": "resourceTemplates",
+			} {
+				result := rawOperationCall(t, frontend, method, map[string]any{}, meta, version, sessionID)
+				if got := string(result[field]); got != "[]" {
+					t.Errorf("%s: %s = %s, want []", method, field, got)
+				}
+			}
+		})
+	}
+}
+
 func TestCurrentFrontendOperationResultsFromStatefulHTTPDownstream(t *testing.T) {
 	frontend := operationTranslationFrontend(t, true)
 	meta := map[string]any{

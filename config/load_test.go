@@ -8,6 +8,16 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
+func TestLoadDisableTools(t *testing.T) {
+	cfg, err := Load([]byte("servers:\n  - name: gh\n    url: https://example.invalid\n    disableTools: true\n"), LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Servers[0].DisableTools {
+		t.Fatal("disableTools was not loaded")
+	}
+}
+
 func TestLoadStrictInterpolationAndDefaults(t *testing.T) {
 	env := map[string]string{
 		"TOKEN": "secret",

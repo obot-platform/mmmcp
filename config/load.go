@@ -111,6 +111,7 @@ func (d serverDTO) runtime(path string, lookup func(string) (string, bool)) (Ser
 		Env:                make(map[string]string, len(d.Env)),
 		Timeout:            d.Timeout.runtime(),
 		Tools:              make([]ToolOverride, len(d.Tools)),
+		DisableTools:       d.DisableTools,
 		Prompts:            make([]PromptOverride, len(d.Prompts)),
 		Resources:          make([]ResourceOverride, len(d.Resources)),
 		ResourceTemplates:  make([]ResourceTemplateOverride, len(d.ResourceTemplates)),
