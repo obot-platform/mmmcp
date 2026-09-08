@@ -5,6 +5,7 @@ import (
 	nethttp "net/http"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/obot-platform/mmmcp/component/http"
 	"github.com/obot-platform/mmmcp/storage"
 )
@@ -13,6 +14,11 @@ import (
 type Options struct {
 	Logger     *slog.Logger
 	HTTPClient *nethttp.Client
+	// ClientInfo identifies mmmcp to downstream components. Nil uses mmmcp/dev.
+	ClientInfo *mcp.Implementation
+	// ForwardClientInfo forwards the frontend client identity to downstream components.
+	// ClientInfo is used when the frontend identity is unavailable.
+	ForwardClientInfo bool
 	// OAuth supplies a component-specific OAuth handler for downstream HTTP clients.
 	OAuth http.OAuthHandlerProvider
 	// DSN selects the default event storage. An empty DSN selects SQLite.

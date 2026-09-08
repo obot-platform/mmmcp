@@ -3,6 +3,7 @@ package component
 import (
 	"context"
 	"net/http"
+	"reflect"
 	"testing"
 	"time"
 
@@ -26,11 +27,13 @@ func TestWithoutValuesPreservesLifecycle(t *testing.T) {
 	}
 }
 
-func TestWithoutValuesPreservesOnlyRequestHeaders(t *testing.T) {
+func TestWithoutValuesPreservesForwardedValues(t *testing.T) {
 	type key struct{}
 	headers := http.Header{"X-Tenant": {"tenant-a"}}
-	parent := ContextWithRequestHeaders(context.WithValue(t.Context(), key{}, "private"), headers)
+	info := &mcp.Implementation{Name: "frontend", Version: "1"}
+	parent := ContextWithClientInfo(ContextWithRequestHeaders(context.WithValue(t.Context(), key{}, "private"), headers), info)
 	headers.Set("X-Tenant", "mutated")
+	info.Name = "mutated"
 
 	ctx := WithoutValues(parent)
 	if ctx.Value(key{}) != nil {
@@ -43,6 +46,34 @@ func TestWithoutValuesPreservesOnlyRequestHeaders(t *testing.T) {
 	got.Set("X-Tenant", "also-mutated")
 	if again := RequestHeadersFromContext(ctx).Get("X-Tenant"); again != "tenant-a" {
 		t.Fatalf("stored request header was mutated to %q", again)
+	}
+	if got := ClientInfoFromContext(ctx); got == nil || got.Name != "frontend" || got.Version != "1" {
+		t.Fatalf("client info = %+v, want frontend/1", got)
+	}
+}
+
+func TestClientInfoSnapshot(t *testing.T) {
+	want := mcp.Implementation{
+		Name: "frontend", Version: "1", Title: "Frontend", Description: "Frontend client",
+		WebsiteURL: "https://example.com",
+		Icons:      []mcp.Icon{{Source: "https://example.com/icon.png", MIMEType: "image/png", Sizes: []string{"48x48"}, Theme: "light"}},
+	}
+	info := want
+	info.Icons = []mcp.Icon{want.Icons[0]}
+	info.Icons[0].Sizes = []string{"48x48"}
+	ctx := WithoutValues(ContextWithClientInfo(t.Context(), &info))
+	info.Title = "mutated"
+	info.Icons[0].Source = "mutated"
+	info.Icons[0].Sizes[0] = "mutated"
+	got := ClientInfoFromContext(ctx)
+	if !reflect.DeepEqual(got, &want) {
+		t.Fatalf("client info = %+v, want %+v", got, want)
+	}
+	got.Title = "also-mutated"
+	got.Icons[0].Source = "also-mutated"
+	got.Icons[0].Sizes[0] = "also-mutated"
+	if again := ClientInfoFromContext(ctx); !reflect.DeepEqual(again, &want) {
+		t.Fatalf("stored client info was mutated: %+v", again)
 	}
 }
 

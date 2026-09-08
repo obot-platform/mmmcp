@@ -12,6 +12,9 @@ import (
 // frontend session. Multi-round-trip handling is deliberately disabled so
 // continuation results can cross the composite boundary unchanged.
 func NewClient(implementation *mcp.Implementation, callbacks Callbacks) *mcp.Client {
+	if implementation == nil {
+		implementation = &mcp.Implementation{Name: "mmmcp", Version: "dev"}
+	}
 	options := &mcp.ClientOptions{
 		MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: callbacks.Frontend == nil},
 	}

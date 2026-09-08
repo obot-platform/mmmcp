@@ -10,10 +10,6 @@ import (
 	"github.com/obot-platform/mmmcp/config"
 )
 
-var (
-	implementation = &mcp.Implementation{Name: "mmmcp", Version: "dev"}
-)
-
 type runtimeSession struct {
 	server  config.Server
 	session *mcp.ClientSession
@@ -21,11 +17,14 @@ type runtimeSession struct {
 	err     error
 }
 
-func connect(ctx context.Context, server config.Server, builder commandBuilder, callbacks component.Callbacks) (*runtimeSession, error) {
+func connect(ctx context.Context, server config.Server, builder commandBuilder, clientInfo *mcp.Implementation, callbacks component.Callbacks) (*runtimeSession, error) {
 	ctx, cancel := withTimeout(ctx, server.Timeout)
 	defer cancel()
 	ctx = component.WithoutValues(ctx)
-	client := component.NewClient(implementation, callbacks)
+	if forwarded := component.ClientInfoFromContext(ctx); forwarded != nil {
+		clientInfo = forwarded
+	}
+	client := component.NewClient(clientInfo, callbacks)
 	session, err := client.Connect(ctx, builder.transport(server), nil)
 	if err != nil {
 		return nil, err
