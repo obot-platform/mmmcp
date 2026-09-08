@@ -329,8 +329,8 @@ func TestCompileIgnoresOverridesForUndiscoveredFeatures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(compiled.Tools()) != 1 || len(compiled.Prompts()) != 1 || len(compiled.Resources()) != 1 || len(compiled.ResourceTemplates()) != 1 {
-		t.Fatal("discovered features were not preserved")
+	if len(compiled.Tools()) != 0 || len(compiled.Prompts()) != 1 || len(compiled.Resources()) != 1 || len(compiled.ResourceTemplates()) != 1 {
+		t.Fatal("tools without overrides must be hidden; other discovered features must be preserved")
 	}
 }
 

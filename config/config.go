@@ -26,6 +26,7 @@ type Server struct {
 	WorkingDirectory   string
 	Timeout            time.Duration
 	Tools              []ToolOverride
+	DisableTools       bool
 	Prompts            []PromptOverride
 	Resources          []ResourceOverride
 	ResourceTemplates  []ResourceTemplateOverride
@@ -91,6 +92,7 @@ type serverDTO struct {
 	WorkingDirectory   string                        `yaml:"workingDirectory"`
 	Timeout            durationValue                 `yaml:"timeout"`
 	Tools              []toolOverrideDTO             `yaml:"tools"`
+	DisableTools       bool                          `yaml:"disableTools"`
 	Prompts            []promptOverrideDTO           `yaml:"prompts"`
 	Resources          []resourceOverrideDTO         `yaml:"resources"`
 	ResourceTemplates  []resourceTemplateOverrideDTO `yaml:"resourceTemplates"`

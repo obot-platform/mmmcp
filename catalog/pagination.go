@@ -76,7 +76,7 @@ func (c *Catalog) PageTools(cursor string, pageSize int) ([]*mcp.Tool, string, e
 	if err != nil {
 		return nil, "", err
 	}
-	return append([]*mcp.Tool(nil), c.tools[start:end]...), next, nil
+	return append([]*mcp.Tool{}, c.tools[start:end]...), next, nil
 }
 
 // PagePrompts returns one stable page of prompts.
@@ -85,7 +85,7 @@ func (c *Catalog) PagePrompts(cursor string, pageSize int) ([]*mcp.Prompt, strin
 	if err != nil {
 		return nil, "", err
 	}
-	return append([]*mcp.Prompt(nil), c.prompts[start:end]...), next, nil
+	return append([]*mcp.Prompt{}, c.prompts[start:end]...), next, nil
 }
 
 // PageResources returns one stable page of resources.
@@ -94,7 +94,7 @@ func (c *Catalog) PageResources(cursor string, pageSize int) ([]*mcp.Resource, s
 	if err != nil {
 		return nil, "", err
 	}
-	return append([]*mcp.Resource(nil), c.resources[start:end]...), next, nil
+	return append([]*mcp.Resource{}, c.resources[start:end]...), next, nil
 }
 
 // PageResourceTemplates returns one stable page of resource templates.
@@ -103,5 +103,5 @@ func (c *Catalog) PageResourceTemplates(cursor string, pageSize int) ([]*mcp.Res
 	if err != nil {
 		return nil, "", err
 	}
-	return append([]*mcp.ResourceTemplate(nil), c.resourceTemplates[start:end]...), next, nil
+	return append([]*mcp.ResourceTemplate{}, c.resourceTemplates[start:end]...), next, nil
 }

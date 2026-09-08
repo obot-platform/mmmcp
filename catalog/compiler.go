@@ -127,6 +127,9 @@ func discoverComponents(ctx context.Context, servers []config.Server, prefixes [
 }
 
 func compileTools(c *Catalog, server config.Server, prefix string, discovered []*mcp.Tool) error {
+	if server.DisableTools {
+		return nil
+	}
 	overrides, err := keyedOverrides(server.Name, "tool", server.Tools, func(v config.ToolOverride) string { return v.Name })
 	if err != nil {
 		return err
@@ -141,7 +144,7 @@ func compileTools(c *Catalog, server config.Server, prefix string, discovered []
 		}
 		seen[tool.Name] = true
 		override, ok := overrides[tool.Name]
-		if ok && !override.Enabled {
+		if len(overrides) > 0 && (!ok || !override.Enabled) {
 			continue
 		}
 		local := tool.Name

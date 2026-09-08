@@ -70,6 +70,11 @@ namespace, and default to enabled. Only an explicit `enabled: false` hides a
 feature. Supported MCP resource URI fields are rewritten on routed results;
 arbitrary tool JSON is not inspected.
 
+When a server has tool overrides, only tools with enabled overrides can be listed
+or called. Without overrides, all discovered tools are available. Set the server's
+`disableTools: true` to expose no tools, regardless of overrides. Prompts and
+resources are unaffected.
+
 ## Running
 
 Build and run the HTTP frontend:

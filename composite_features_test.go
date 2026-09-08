@@ -52,6 +52,7 @@ func TestCompositeRoutesEveryFeatureFamilyAndRewritesTypedURIs(t *testing.T) {
 	cfg := &config.Config{Servers: []config.Server{{
 		Name: "Docs Server", URL: fixture.URL,
 		Tools: []config.ToolOverride{
+			{Name: "protocol_error", Enabled: true},
 			{Name: "disabled", Enabled: false},
 			{Name: "links", OverrideName: "references", OverrideDescription: "overridden tool", Enabled: true},
 		},
