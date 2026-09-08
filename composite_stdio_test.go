@@ -27,8 +27,70 @@ var (
 )
 
 type stdioInfo struct {
-	PID int               `json:"pid"`
-	Env map[string]string `json:"env"`
+	PID        int                 `json:"pid"`
+	Env        map[string]string   `json:"env"`
+	ClientInfo *mcp.Implementation `json:"clientInfo"`
+}
+
+func TestOptionsClientInfoForStdioComponents(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		info *mcp.Implementation
+		want mcp.Implementation
+	}{
+		{name: "configured", info: &mcp.Implementation{Name: "Obot MCP Gateway", Version: "1.2.3"}, want: mcp.Implementation{Name: "Obot MCP Gateway", Version: "1.2.3"}},
+		{name: "default", want: mcp.Implementation{Name: "mmmcp", Version: "dev"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			composite, err := mmmcp.New(t.Context(), &config.Config{Servers: []config.Server{stdioServerConfig(nil)}}, mmmcp.Options{ClientInfo: test.info})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = composite.Close() })
+			frontend := httptest.NewServer(composite.HTTPHandler())
+			t.Cleanup(frontend.Close)
+			info := callStdioInfo(t, connectCurrent(t, frontend))
+			if info.ClientInfo == nil || info.ClientInfo.Name != test.want.Name || info.ClientInfo.Version != test.want.Version {
+				t.Fatalf("component client info = %+v, want %+v", info.ClientInfo, test.want)
+			}
+		})
+	}
+}
+
+func TestForwardClientInfoForStdioComponents(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		protocol string
+	}{
+		{name: "stateless", protocol: "2026-07-28"},
+		{name: "stateful", protocol: "2025-11-25"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			composite, err := mmmcp.New(t.Context(), &config.Config{Servers: []config.Server{stdioServerConfig(nil)}}, mmmcp.Options{
+				ClientInfo:        &mcp.Implementation{Name: "gateway", Version: "1"},
+				ForwardClientInfo: true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = composite.Close() })
+			frontend := httptest.NewServer(composite.HTTPHandler())
+			t.Cleanup(frontend.Close)
+			for _, identity := range []*mcp.Implementation{
+				{Name: "first-client", Version: "1.2.3"},
+				{Name: "second-client", Version: "4.5.6"},
+			} {
+				session := connectFrontend(t, frontend, identity, test.protocol)
+				info := callStdioInfo(t, session)
+				if err := session.Close(); err != nil {
+					t.Fatal(err)
+				}
+				if info.ClientInfo == nil || info.ClientInfo.Name != identity.Name || info.ClientInfo.Version != identity.Version {
+					t.Fatalf("component client info = %+v, want %+v", info.ClientInfo, identity)
+				}
+			}
+		})
+	}
 }
 
 func TestCompositeStdioStatelessUsesFreshProcessesAndSanitizedEnvironment(t *testing.T) {

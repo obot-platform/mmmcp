@@ -5,6 +5,7 @@ package component
 import (
 	"context"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -76,6 +77,7 @@ type Callbacks struct {
 }
 
 type requestHeadersContextKey struct{}
+type clientInfoContextKey struct{}
 
 type valueSuppressingContext struct {
 	context.Context
@@ -107,8 +109,8 @@ func WithoutValues(ctx context.Context) context.Context {
 }
 
 // ContextWithRequestHeaders attaches an immutable snapshot of the headers from
-// the frontend HTTP request. The snapshot is the only context value preserved
-// by WithoutValues for downstream HTTP forwarding.
+// the frontend HTTP request. The snapshot is preserved by WithoutValues for
+// downstream HTTP forwarding.
 func ContextWithRequestHeaders(ctx context.Context, headers http.Header) context.Context {
 	return context.WithValue(ctx, requestHeadersContextKey{}, headers.Clone())
 }
@@ -119,8 +121,35 @@ func RequestHeadersFromContext(ctx context.Context) http.Header {
 	return headers.Clone()
 }
 
+// ContextWithClientInfo attaches an immutable snapshot of the frontend client identity for downstream connections.
+func ContextWithClientInfo(ctx context.Context, info *mcp.Implementation) context.Context {
+	if info == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, clientInfoContextKey{}, cloneClientInfo(*info))
+}
+
+// ClientInfoFromContext returns a copy of the frontend client identity, if present.
+func ClientInfoFromContext(ctx context.Context) *mcp.Implementation {
+	info, _ := ctx.Value(clientInfoContextKey{}).(mcp.Implementation)
+	if info.Name == "" && info.Version == "" {
+		return nil
+	}
+	info = cloneClientInfo(info)
+	return &info
+}
+
+func cloneClientInfo(info mcp.Implementation) mcp.Implementation {
+	info.Icons = slices.Clone(info.Icons)
+	for i := range info.Icons {
+		info.Icons[i].Sizes = slices.Clone(info.Icons[i].Sizes)
+	}
+	return info
+}
+
 func (c valueSuppressingContext) Value(key any) any {
-	if _, ok := key.(requestHeadersContextKey); ok {
+	switch key.(type) {
+	case requestHeadersContextKey, clientInfoContextKey:
 		return c.Context.Value(key)
 	}
 	return nil

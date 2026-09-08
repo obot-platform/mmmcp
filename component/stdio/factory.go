@@ -20,15 +20,17 @@ type Options struct {
 	Logger            *slog.Logger
 	LookupEnv         func(string) (string, bool)
 	TerminateDuration time.Duration
+	ClientInfo        *mcp.Implementation
 }
 
 // Factory creates isolated command-backed component sessions.
 type Factory struct {
-	builder commandBuilder
-	clock   clock
-	mu      sync.Mutex
-	closing bool
-	cleanup sync.WaitGroup
+	builder    commandBuilder
+	clientInfo *mcp.Implementation
+	clock      clock
+	mu         sync.Mutex
+	closing    bool
+	cleanup    sync.WaitGroup
 }
 
 // NewFactory creates a stdio component factory.
@@ -41,14 +43,14 @@ func NewFactory(opts Options) *Factory {
 		lookupEnv:         lookup,
 		logger:            opts.Logger,
 		terminateDuration: opts.TerminateDuration,
-	}, clock: realClock{}}
+	}, clientInfo: opts.ClientInfo, clock: realClock{}}
 }
 
 func (f *Factory) open(ctx context.Context, server config.Server, callbacks component.Callbacks) (*runtimeSession, error) {
 	if server.Command == "" {
 		return nil, fmt.Errorf("component %q is not configured for stdio", server.Name)
 	}
-	runtime, err := connect(ctx, server, f.builder, callbacks)
+	runtime, err := connect(ctx, server, f.builder, f.clientInfo, callbacks)
 	if err != nil {
 		return nil, fmt.Errorf("component %q connect: %w", server.Name, err)
 	}

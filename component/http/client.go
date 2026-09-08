@@ -15,20 +15,18 @@ import (
 	"github.com/obot-platform/mmmcp/config"
 )
 
-var (
-	implementation = &mcp.Implementation{Name: "mmmcp", Version: "dev"}
-)
-
 // Factory creates isolated Streamable HTTP client sessions.
 type Factory struct {
 	HTTPClient *http.Client
 	OAuth      OAuthHandlerProvider
+	ClientInfo *mcp.Implementation
 }
 
 // FactoryOptions configures a Streamable HTTP component factory.
 type FactoryOptions struct {
 	HTTPClient *http.Client
 	OAuth      OAuthHandlerProvider
+	ClientInfo *mcp.Implementation
 }
 
 type runtime struct {
@@ -44,7 +42,7 @@ type headerTransport struct {
 
 // NewFactory creates a Streamable HTTP component factory.
 func NewFactory(opts FactoryOptions) *Factory {
-	return &Factory{HTTPClient: opts.HTTPClient, OAuth: opts.OAuth}
+	return &Factory{HTTPClient: opts.HTTPClient, OAuth: opts.OAuth, ClientInfo: opts.ClientInfo}
 }
 
 // Discover connects to a component and exhausts every feature list.
@@ -223,7 +221,11 @@ func (f *Factory) connectWithStandaloneSSE(ctx context.Context, server config.Se
 	if oauthHandler == nil {
 		oauthHandler = authorizationErrorHandler{}
 	}
-	client := component.NewClient(implementation, callbacks)
+	clientInfo := f.ClientInfo
+	if forwarded := component.ClientInfoFromContext(ctx); forwarded != nil {
+		clientInfo = forwarded
+	}
+	client := component.NewClient(clientInfo, callbacks)
 	transport := &mcp.StreamableClientTransport{
 		Endpoint:             server.URL,
 		HTTPClient:           clientWithHeaders(f.HTTPClient, server.Headers, server.PassthroughHeaders),

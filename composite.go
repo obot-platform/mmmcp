@@ -49,6 +49,10 @@ type Composite struct {
 	closed                    atomic.Bool
 }
 
+type clientInfoProvider interface {
+	ClientInfo() *mcp.Implementation
+}
+
 // New discovers the configured components and creates a composite server.
 func New(ctx context.Context, cfg *config.Config, opts Options) (*Composite, error) {
 	if cfg == nil {
@@ -63,11 +67,13 @@ func New(ctx context.Context, cfg *config.Config, opts Options) (*Composite, err
 	httpFactory := componenthttp.NewFactory(componenthttp.FactoryOptions{
 		HTTPClient: opts.HTTPClient,
 		OAuth:      opts.OAuth,
+		ClientInfo: opts.ClientInfo,
 	})
 	stdioFactory := componentstdio.NewFactory(componentstdio.Options{
 		Logger:            opts.Logger,
 		LookupEnv:         opts.LookupEnv,
 		TerminateDuration: opts.CommandTerminateDuration,
+		ClientInfo:        opts.ClientInfo,
 	})
 	factory := component.NewRoutingFactory(httpFactory, stdioFactory)
 	registry := catalog.NewRegistry(factory)
@@ -138,8 +144,22 @@ func newFrontendServer(c *Composite, opts Options, implementation mcp.Implementa
 		SubscribeHandler:   c.subscribe,
 		UnsubscribeHandler: c.unsubscribe,
 	})
-	server.AddReceivingMiddleware(c.bindFrontendServer(server), c.configMiddleware(), c.featureMiddleware())
+	server.AddReceivingMiddleware(c.bindFrontendServer(server), c.forwardClientInfoMiddleware(), c.configMiddleware(), c.featureMiddleware())
 	return server
+}
+
+func (c *Composite) forwardClientInfoMiddleware() mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, request mcp.Request) (mcp.Result, error) {
+			if !c.serverOptions.ForwardClientInfo {
+				return next(ctx, method, request)
+			}
+			if request, ok := request.(clientInfoProvider); ok {
+				ctx = component.ContextWithClientInfo(ctx, request.ClientInfo())
+			}
+			return next(ctx, method, request)
+		}
+	}
 }
 
 func frontendImplementation(cfg *config.Config, discovered *catalog.Catalog) mcp.Implementation {
