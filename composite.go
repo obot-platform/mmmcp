@@ -34,6 +34,7 @@ type Composite struct {
 	requestConfigs            requestConfigRegistry
 	activity                  httpActivityRegistry
 	bindings                  frontendBindings
+	toolSubscriptions         configToolSubscriptions
 	authorizationErrors       sync.Map
 	stores                    *storage.Registry
 	defaultStore              storage.Store
@@ -144,7 +145,7 @@ func newFrontendServer(c *Composite, opts Options, implementation mcp.Implementa
 		SubscribeHandler:   c.subscribe,
 		UnsubscribeHandler: c.unsubscribe,
 	})
-	server.AddReceivingMiddleware(c.bindFrontendServer(server), c.forwardClientInfoMiddleware(), c.configMiddleware(), c.featureMiddleware())
+	server.AddReceivingMiddleware(c.bindFrontendServer(server), c.forwardClientInfoMiddleware(), c.configMiddleware(), c.featureMiddleware(server))
 	return server
 }
 

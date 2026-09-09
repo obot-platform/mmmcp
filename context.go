@@ -7,7 +7,22 @@ import (
 )
 
 type configContextKey struct{}
+type configIDContextKey struct{}
 type dsnContextKey struct{}
+
+// ContextWithConfigID identifies a configuration across stateless requests and
+// notification subscriptions. The ID must remain stable across configuration
+// changes, and all requests sharing an ID must have the same configuration view.
+// An empty ID disables shared notification tracking.
+func ContextWithConfigID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, configIDContextKey{}, id)
+}
+
+// ConfigIDFromContext returns the nonempty configuration ID attached to ctx.
+func ConfigIDFromContext(ctx context.Context) (string, bool) {
+	id, ok := ctx.Value(configIDContextKey{}).(string)
+	return id, ok && id != ""
+}
 
 // ContextWithConfig attaches a complete configuration snapshot to ctx.
 func ContextWithConfig(ctx context.Context, cfg *config.Config) context.Context {

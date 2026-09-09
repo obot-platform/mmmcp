@@ -164,6 +164,27 @@ selected independently with `Options.DSN` or `ContextWithDSN`.
 request = request.WithContext(mmmcp.ContextWithConfig(request.Context(), tenantConfig))
 ```
 
+For tool-change notifications with the stateless protocol, also attach a stable
+configuration ID to every request, including `subscriptions/listen`:
+
+```go
+ctx := mmmcp.ContextWithConfigID(request.Context(), serverID)
+ctx = mmmcp.ContextWithConfig(ctx, tenantConfig)
+request = request.WithContext(ctx)
+```
+
+Choose the ID in trusted application middleware. All requests sharing an ID must
+see the same configuration; include the tenant or user ID when their tool views
+differ. Keep the ID unchanged when editing overrides. The ID is scoped to one
+`Composite` instance and is not an MCP session ID or a client-supplied header.
+
+While listeners are connected, the next request that observes changed tools
+notifies all tool-change subscribers for that ID, even when it is `tools/list`.
+Unrelated configuration changes do not notify. Tracking is removed when the last
+listener disconnects. Without a nonempty ID, stateless requests do not share
+change tracking. Legacy sessions still track changes individually and suppress
+the notification when the triggering request is `tools/list`.
+
 Use `Composite.RunStdio(ctx)` to serve stdin/stdout. A configuration attached to
 that context applies to the complete stdio frontend session.
 
