@@ -3,6 +3,8 @@ package mmmcp
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -11,12 +13,31 @@ import (
 	"github.com/obot-platform/mmmcp/config"
 )
 
-func (c *Composite) featureMiddleware() mcp.Middleware {
+func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		// Each frontend server serves one session; retain its last config snapshot.
+		var (
+			mu                  sync.Mutex
+			previous            *catalog.Catalog
+			previousFingerprint string
+		)
 		handler := func(ctx context.Context, method string, request mcp.Request) (mcp.Result, error) {
 			compiled, fingerprint, err := c.catalogForRequest(ctx, request)
 			if err != nil {
 				return nil, err
+			}
+			if id, ok := ConfigIDFromContext(ctx); ok && request.GetSession().ID() == "" {
+				if cleanup := c.toolSubscriptions.observe(id, method, server, compiled, fingerprint); cleanup != nil {
+					defer cleanup()
+				}
+			} else {
+				mu.Lock()
+				toolsChanged := previous != nil && previousFingerprint != fingerprint && !reflect.DeepEqual(previous.Tools(), compiled.Tools())
+				previous, previousFingerprint = compiled, fingerprint
+				mu.Unlock()
+				if toolsChanged && method != "tools/list" {
+					notifyFeatureChanged(server, component.FeatureTools)
+				}
 			}
 			switch method {
 			case "tools/list":

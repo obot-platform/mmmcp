@@ -2,12 +2,25 @@ package mmmcp
 
 import (
 	"context"
+	"reflect"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/obot-platform/mmmcp/catalog"
 	"github.com/obot-platform/mmmcp/component"
 	"github.com/obot-platform/mmmcp/config"
 )
+
+type configToolSubscriptions struct {
+	mu      sync.Mutex
+	configs map[string]*configToolSubscription
+}
+
+type configToolSubscription struct {
+	catalog     *catalog.Catalog
+	fingerprint string
+	servers     map[*mcp.Server]struct{}
+}
 
 type frontendBinding struct {
 	fingerprint string
@@ -18,6 +31,45 @@ type frontendBindings struct {
 	mu       sync.Mutex
 	sessions map[*mcp.ServerSession]map[frontendBinding]struct{}
 	servers  map[*mcp.ServerSession]*mcp.Server
+}
+
+// observe retains snapshots only while a configuration has active listeners.
+func (s *configToolSubscriptions) observe(id, method string, server *mcp.Server, compiled *catalog.Catalog, fingerprint string) func() {
+	s.mu.Lock()
+	entry := s.configs[id]
+	var notify []*mcp.Server
+	if entry != nil {
+		if entry.fingerprint != fingerprint && !reflect.DeepEqual(entry.catalog.Tools(), compiled.Tools()) {
+			for listener := range entry.servers {
+				notify = append(notify, listener)
+			}
+		}
+		entry.catalog, entry.fingerprint = compiled, fingerprint
+	}
+	var cleanup func()
+	if method == subscriptionsListenMethod {
+		if entry == nil {
+			entry = &configToolSubscription{catalog: compiled, fingerprint: fingerprint, servers: make(map[*mcp.Server]struct{})}
+			if s.configs == nil {
+				s.configs = make(map[string]*configToolSubscription)
+			}
+			s.configs[id] = entry
+		}
+		entry.servers[server] = struct{}{}
+		cleanup = func() {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			delete(entry.servers, server)
+			if len(entry.servers) == 0 {
+				delete(s.configs, id)
+			}
+		}
+	}
+	s.mu.Unlock()
+	for _, listener := range notify {
+		notifyFeatureChanged(listener, component.FeatureTools)
+	}
+	return cleanup
 }
 
 func (b *frontendBindings) bindServer(session *mcp.ServerSession, server *mcp.Server) {
