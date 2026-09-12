@@ -3,9 +3,14 @@ package http
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
@@ -38,6 +43,11 @@ type headerTransport struct {
 	base               http.RoundTripper
 	headers            map[string]string
 	passthroughHeaders []string
+}
+
+type headerSchemaProperty struct {
+	Header     json.RawMessage                 `json:"x-mcp-header"`
+	Properties map[string]headerSchemaProperty `json:"properties"`
 }
 
 // NewFactory creates a Streamable HTTP component factory.
@@ -320,5 +330,76 @@ func (t headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	for name, value := range t.headers {
 		clone.Header.Set(name, value)
 	}
+	tool, arguments := component.ToolCallFromContext(req.Context())
+	addToolParamHeaders(clone.Header, tool, arguments)
 	return t.base.RoundTrip(clone)
+}
+
+func addToolParamHeaders(headers http.Header, tool *mcp.Tool, arguments []byte) {
+	if tool == nil || len(arguments) == 0 {
+		return
+	}
+	data, err := json.Marshal(tool.InputSchema)
+	if err != nil {
+		return
+	}
+	var schema struct {
+		Properties map[string]headerSchemaProperty `json:"properties"`
+	}
+	var args map[string]json.RawMessage
+	if json.Unmarshal(data, &schema) != nil || json.Unmarshal(arguments, &args) != nil {
+		return
+	}
+	addAnnotatedHeaders(headers, schema.Properties, args)
+}
+
+func addAnnotatedHeaders(headers http.Header, properties map[string]headerSchemaProperty, arguments map[string]json.RawMessage) {
+	for name, property := range properties {
+		argument, ok := arguments[name]
+		if !ok || string(argument) == "null" {
+			continue
+		}
+		var header string
+		if json.Unmarshal(property.Header, &header) == nil && header != "" {
+			if value, ok := encodeParamHeader(argument); ok {
+				headers.Set("Mcp-Param-"+header, value)
+			}
+		}
+		if len(property.Properties) > 0 {
+			var nested map[string]json.RawMessage
+			if json.Unmarshal(argument, &nested) == nil {
+				addAnnotatedHeaders(headers, property.Properties, nested)
+			}
+		}
+	}
+}
+
+func encodeParamHeader(raw json.RawMessage) (string, bool) {
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return "", false
+	}
+	var encoded string
+	switch value := value.(type) {
+	case string:
+		encoded = value
+	case bool:
+		encoded = strconv.FormatBool(value)
+	case float64:
+		if value != math.Trunc(value) || value < -(1<<53-1) || value > 1<<53-1 {
+			return "", false
+		}
+		encoded = strconv.FormatInt(int64(value), 10)
+	default:
+		return "", false
+	}
+	if strings.Trim(encoded, " \t") != encoded || (strings.HasPrefix(encoded, "=?base64?") && strings.HasSuffix(encoded, "?=")) {
+		return "=?base64?" + base64.StdEncoding.EncodeToString([]byte(encoded)) + "?=", true
+	}
+	for _, char := range encoded {
+		if char < 0x20 || char > 0x7e {
+			return "=?base64?" + base64.StdEncoding.EncodeToString([]byte(encoded)) + "?=", true
+		}
+	}
+	return encoded, true
 }

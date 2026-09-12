@@ -1,15 +1,16 @@
 package catalog
 
 import (
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/obot-platform/mmmcp/config"
 	"github.com/yosida95/uritemplate/v3"
 )
 
 // ToolRoute maps an exposed tool identity back to its component identity.
 type ToolRoute struct {
-	Component    config.Server
-	Prefix       string
-	OriginalName string
+	Component config.Server
+	Prefix    string
+	Tool      *mcp.Tool
 }
 
 // PromptRoute maps an exposed prompt identity back to its component identity.
