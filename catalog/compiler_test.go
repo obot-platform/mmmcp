@@ -209,7 +209,7 @@ func TestCompileAllFeaturesAppliesOverridesBeforeNamespace(t *testing.T) {
 	if got := compiled.ResourceTemplates(); len(got) != 1 || got[0].URITemplate != "mmmcp+fancy_server:file:///public/{path}" || got[0].Name != "public files" || got[0].Description != "overridden template" {
 		t.Fatalf("resource templates = %+v", got)
 	}
-	if route, ok := compiled.RouteTool("fancy_server__find"); !ok || route.OriginalName != "search" {
+	if route, ok := compiled.RouteTool("fancy_server__find"); !ok || route.Tool.Name != "search" {
 		t.Fatalf("tool route = %+v, %v", route, ok)
 	}
 	if route, ok := compiled.RoutePrompt("fancy_server__describe"); !ok || route.OriginalName != "explain" {
@@ -248,7 +248,7 @@ func TestCompileSingleServerPreservesFeatureIdentities(t *testing.T) {
 	if got := compiled.ResourceTemplates(); len(got) != 1 || got[0].URITemplate != "file:///{path}" {
 		t.Fatalf("resource templates = %+v", got)
 	}
-	if route, ok := compiled.RouteTool("search"); !ok || route.OriginalName != "search" || route.Prefix != "" {
+	if route, ok := compiled.RouteTool("search"); !ok || route.Tool.Name != "search" || route.Prefix != "" {
 		t.Fatalf("tool route = %+v, %v", route, ok)
 	}
 	if route, ok := compiled.RoutePrompt("explain"); !ok || route.OriginalName != "explain" || route.Prefix != "" {

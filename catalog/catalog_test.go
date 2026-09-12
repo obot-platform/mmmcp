@@ -46,7 +46,7 @@ func TestCompileExhaustsPaginationSortsAndRoutesOriginalNames(t *testing.T) {
 		if !ok {
 			t.Fatalf("RouteTool(%q) not found", name)
 		}
-		if route.Component.Name != "local files" || route.OriginalName != name {
+		if route.Component.Name != "local files" || route.Tool.Name != name {
 			t.Fatalf("RouteTool(%q) = %+v", name, route)
 		}
 	}

@@ -123,9 +123,10 @@ func (c *Composite) callTool(ctx context.Context, request mcp.Request, compiled 
 	if !ok {
 		return nil, unknown("tool", req.Params.Name)
 	}
+	ctx = component.ContextWithToolCall(ctx, route.Tool, req.Params.Arguments)
 	params := &mcp.CallToolParams{
 		Meta:           component.DownstreamMeta(req.Params.Meta),
-		Name:           route.OriginalName,
+		Name:           route.Tool.Name,
 		Arguments:      req.Params.Arguments,
 		InputResponses: req.Params.InputResponses,
 		RequestState:   req.Params.RequestState,

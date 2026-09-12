@@ -78,6 +78,12 @@ type Callbacks struct {
 
 type requestHeadersContextKey struct{}
 type clientInfoContextKey struct{}
+type toolCallContextKey struct{}
+
+type toolCallContext struct {
+	tool      *mcp.Tool
+	arguments []byte
+}
 
 type valueSuppressingContext struct {
 	context.Context
@@ -121,6 +127,18 @@ func RequestHeadersFromContext(ctx context.Context) http.Header {
 	return headers.Clone()
 }
 
+// ContextWithToolCall attaches the routed tool definition and raw arguments
+// needed to generate transport-level parameter headers downstream.
+func ContextWithToolCall(ctx context.Context, tool *mcp.Tool, arguments []byte) context.Context {
+	return context.WithValue(ctx, toolCallContextKey{}, toolCallContext{tool: tool, arguments: slices.Clone(arguments)})
+}
+
+// ToolCallFromContext returns the routed tool definition and raw arguments.
+func ToolCallFromContext(ctx context.Context) (*mcp.Tool, []byte) {
+	call, _ := ctx.Value(toolCallContextKey{}).(toolCallContext)
+	return call.tool, slices.Clone(call.arguments)
+}
+
 // ContextWithClientInfo attaches an immutable snapshot of the frontend client identity for downstream connections.
 func ContextWithClientInfo(ctx context.Context, info *mcp.Implementation) context.Context {
 	if info == nil {
@@ -149,7 +167,7 @@ func cloneClientInfo(info mcp.Implementation) mcp.Implementation {
 
 func (c valueSuppressingContext) Value(key any) any {
 	switch key.(type) {
-	case requestHeadersContextKey, clientInfoContextKey:
+	case requestHeadersContextKey, clientInfoContextKey, toolCallContextKey:
 		return c.Context.Value(key)
 	}
 	return nil
