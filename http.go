@@ -62,6 +62,9 @@ func (c *Composite) selectFrontendImplementation(next http.Handler) http.Handler
 		cfg := effectiveConfig(r.Context(), c.defaultConfig)
 		compiled, _, err := c.registry.Get(r.Context(), cfg)
 		if err != nil {
+			if logger := c.serverOptions.Logger; logger != nil {
+				logger.ErrorContext(r.Context(), "resolving frontend identity", "error", err)
+			}
 			c.captureAuthorizationError(r.Context(), nil, err)
 			http.Error(w, "frontend identity unavailable", http.StatusInternalServerError)
 			return
