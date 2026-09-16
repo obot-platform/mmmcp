@@ -75,6 +75,13 @@ or called. Without overrides, all discovered tools are available. Set the server
 `disableTools: true` to expose no tools, regardless of overrides. Prompts and
 resources are unaffected.
 
+Each server accepts an optional `discoveryRevision` string (default empty, not
+interpolated). Set it to a fresh revision to trigger rediscovery when the updated
+configuration is next used. It changes the complete configuration fingerprint,
+so all components and feature lists are rediscovered and subsequent stateful
+calls use new downstream runtimes. Reusing an earlier value can reuse its cached
+catalog. The value is not sent to downstream servers.
+
 ## Running
 
 Build and run the HTTP frontend:
