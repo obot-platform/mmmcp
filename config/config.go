@@ -15,6 +15,8 @@ type Config struct {
 
 // Server describes one component MCP server.
 type Server struct {
+	// DiscoveryRevision participates in the complete configuration fingerprint only.
+	DiscoveryRevision  string
 	Name               string
 	Prefix             string
 	URL                string
@@ -81,6 +83,7 @@ type configDTO struct {
 }
 
 type serverDTO struct {
+	DiscoveryRevision  string                        `yaml:"discoveryRevision"`
 	Name               string                        `yaml:"name"`
 	Prefix             string                        `yaml:"prefix"`
 	URL                string                        `yaml:"url"`

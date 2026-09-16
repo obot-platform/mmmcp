@@ -52,6 +52,28 @@ func TestFingerprintIsStableCompleteAndSecretSafe(t *testing.T) {
 	}
 }
 
+func TestRegistryDiscoveryRevisionTriggersRediscovery(t *testing.T) {
+	discoverer := &countingDiscoverer{started: make(chan struct{}), release: make(chan struct{})}
+	close(discoverer.release)
+	registry := catalog.NewRegistry(discoverer)
+	defer registry.Close()
+	for i, field := range []string{"", "    discoveryRevision: revision-1\n"} {
+		cfg, err := config.Load([]byte("servers:\n  - name: fixture\n    url: https://example.invalid\n"+field), config.LoadOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for range 2 {
+			_, _, err := registry.Get(t.Context(), cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := discoverer.Count(); got != i+1 {
+			t.Fatalf("discoveries = %d, want %d", got, i+1)
+		}
+	}
+}
+
 func TestRegistryDeduplicatesConcurrentCompilation(t *testing.T) {
 	discoverer := &countingDiscoverer{started: make(chan struct{}), release: make(chan struct{})}
 	registry := catalog.NewRegistry(discoverer)

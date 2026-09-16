@@ -103,6 +103,7 @@ func (d configDTO) runtime(lookup func(string) (string, bool)) (*Config, error) 
 
 func (d serverDTO) runtime(path string, lookup func(string) (string, bool)) (Server, error) {
 	server := Server{
+		DiscoveryRevision:  d.DiscoveryRevision,
 		Name:               strings.TrimSpace(d.Name),
 		Prefix:             d.Prefix,
 		Headers:            make(map[string]string, len(d.Headers)),
