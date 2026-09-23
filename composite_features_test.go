@@ -150,6 +150,54 @@ func TestCompositeRoutesEveryFeatureFamilyAndRewritesTypedURIs(t *testing.T) {
 	}
 }
 
+func TestCompositeListsAcceptOmittedParams(t *testing.T) {
+	fixture := testserver.New(t, testserver.Options{
+		Tools:             []testserver.Tool{{Definition: &mcp.Tool{Name: "tool", InputSchema: map[string]any{"type": "object"}}, Handler: emptyToolHandler}},
+		Prompts:           []testserver.Prompt{{Definition: &mcp.Prompt{Name: "prompt"}, Handler: emptyPromptHandler}},
+		Resources:         []testserver.Resource{{Definition: &mcp.Resource{URI: "file:///notes", Name: "notes"}, Handler: emptyResourceHandler}},
+		ResourceTemplates: []testserver.ResourceTemplate{{Definition: &mcp.ResourceTemplate{URITemplate: "file:///reports/{name}", Name: "reports"}, Handler: emptyResourceHandler}},
+	})
+	composite, err := mmmcp.New(t.Context(), &config.Config{Servers: []config.Server{{Name: "fixture", URL: fixture.URL}}}, mmmcp.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer composite.Close()
+	frontend := httptest.NewServer(composite.HTTPHandler())
+	defer frontend.Close()
+	// Legacy sessions send nil params as an omitted "params" member.
+	session := connectLegacy(t, frontend, nil)
+	defer session.Close()
+
+	tools, err := session.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatalf("tools/list: %v", err)
+	}
+	if len(tools.Tools) != 1 || tools.Tools[0].Name != "tool" {
+		t.Fatalf("tools = %+v", tools.Tools)
+	}
+	prompts, err := session.ListPrompts(t.Context(), nil)
+	if err != nil {
+		t.Fatalf("prompts/list: %v", err)
+	}
+	if len(prompts.Prompts) != 1 || prompts.Prompts[0].Name != "prompt" {
+		t.Fatalf("prompts = %+v", prompts.Prompts)
+	}
+	resources, err := session.ListResources(t.Context(), nil)
+	if err != nil {
+		t.Fatalf("resources/list: %v", err)
+	}
+	if len(resources.Resources) != 1 || resources.Resources[0].URI != "file:///notes" {
+		t.Fatalf("resources = %+v", resources.Resources)
+	}
+	templates, err := session.ListResourceTemplates(t.Context(), nil)
+	if err != nil {
+		t.Fatalf("resources/templates/list: %v", err)
+	}
+	if len(templates.ResourceTemplates) != 1 || templates.ResourceTemplates[0].URITemplate != "file:///reports/{name}" {
+		t.Fatalf("templates = %+v", templates.ResourceTemplates)
+	}
+}
+
 func collectTools(t *testing.T, session *mcp.ClientSession) []*mcp.Tool {
 	t.Helper()
 	var result []*mcp.Tool
