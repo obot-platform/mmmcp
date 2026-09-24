@@ -42,8 +42,11 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 			switch method {
 			case "tools/list":
 				req, ok := request.(*mcp.ListToolsRequest)
-				if !ok || req.Params == nil {
+				if !ok {
 					return nil, invalidRequest(method)
+				}
+				if req.Params == nil {
+					req.Params = &mcp.ListToolsParams{}
 				}
 				values, nextCursor, err := compiled.PageTools(req.Params.Cursor, c.pageSize)
 				if err != nil {
@@ -52,8 +55,11 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 				return &mcp.ListToolsResult{CacheScope: "public", Tools: values, NextCursor: nextCursor}, nil
 			case "prompts/list":
 				req, ok := request.(*mcp.ListPromptsRequest)
-				if !ok || req.Params == nil {
+				if !ok {
 					return nil, invalidRequest(method)
+				}
+				if req.Params == nil {
+					req.Params = &mcp.ListPromptsParams{}
 				}
 				values, nextCursor, err := compiled.PagePrompts(req.Params.Cursor, c.pageSize)
 				if err != nil {
@@ -62,8 +68,11 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 				return &mcp.ListPromptsResult{CacheScope: "public", Prompts: values, NextCursor: nextCursor}, nil
 			case "resources/list":
 				req, ok := request.(*mcp.ListResourcesRequest)
-				if !ok || req.Params == nil {
+				if !ok {
 					return nil, invalidRequest(method)
+				}
+				if req.Params == nil {
+					req.Params = &mcp.ListResourcesParams{}
 				}
 				values, nextCursor, err := compiled.PageResources(req.Params.Cursor, c.pageSize)
 				if err != nil {
@@ -72,8 +81,11 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 				return &mcp.ListResourcesResult{CacheScope: "public", Resources: values, NextCursor: nextCursor}, nil
 			case "resources/templates/list":
 				req, ok := request.(*mcp.ListResourceTemplatesRequest)
-				if !ok || req.Params == nil {
+				if !ok {
 					return nil, invalidRequest(method)
+				}
+				if req.Params == nil {
+					req.Params = &mcp.ListResourceTemplatesParams{}
 				}
 				values, nextCursor, err := compiled.PageResourceTemplates(req.Params.Cursor, c.pageSize)
 				if err != nil {
