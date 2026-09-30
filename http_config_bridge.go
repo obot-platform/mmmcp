@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/obot-platform/mmmcp/component"
 	"github.com/obot-platform/mmmcp/config"
 )
 
@@ -79,18 +80,24 @@ func (c *Composite) configMiddleware() mcp.Middleware {
 			if extra == nil || extra.Header == nil {
 				return next(ctx, method, request)
 			}
+
+			ctx = component.ContextWithRequestHeaders(ctx, extra.Header)
+
 			selection, ok := c.requestConfigs.get(extra.Header.Get(privateConfigHeader))
 			if !ok {
 				return next(ctx, method, request)
 			}
+
 			if selection.useDefault {
 				ctx = context.WithValue(ctx, configContextKey{}, c.defaultConfig)
 			} else {
 				ctx = ContextWithConfig(ctx, selection.config)
 			}
+
 			if selection.dsnSet {
 				ctx = ContextWithDSN(ctx, selection.dsn)
 			}
+
 			return next(ctx, method, request)
 		}
 	}
