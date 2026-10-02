@@ -67,12 +67,21 @@ func (f *Factory) Discover(ctx context.Context, server config.Server) (*componen
 	}
 	defer runtime.Close()
 	features := new(component.Features)
-	if initialized := runtime.session.InitializeResult(); initialized != nil && initialized.ServerInfo != nil {
-		features.ServerInfo = &mcp.Implementation{
-			Name:    initialized.ServerInfo.Name,
-			Version: initialized.ServerInfo.Version,
+	var capabilities *mcp.ServerCapabilities
+	if initialized := runtime.session.InitializeResult(); initialized != nil {
+		capabilities = initialized.Capabilities
+		if initialized.ServerInfo != nil {
+			features.ServerInfo = &mcp.Implementation{
+				Name:    initialized.ServerInfo.Name,
+				Version: initialized.ServerInfo.Version,
+			}
 		}
 	}
+	// Only list prompts and resources when the component advertises them. A
+	// component that omits a capability may fail its list method with an error
+	// other than method-not-found.
+	listPrompts := capabilities == nil || capabilities.Prompts != nil
+	listResources := capabilities == nil || capabilities.Resources != nil
 	if err := paginate(server.Name, "tools/list", func(cursor string) (string, error) {
 		result, err := runtime.session.ListTools(ctx, &mcp.ListToolsParams{Cursor: cursor})
 		if err == nil {
@@ -83,35 +92,39 @@ func (f *Factory) Discover(ctx context.Context, server config.Server) (*componen
 	}); err != nil {
 		return nil, err
 	}
-	if err := paginate(server.Name, "prompts/list", func(cursor string) (string, error) {
-		result, err := runtime.session.ListPrompts(ctx, &mcp.ListPromptsParams{Cursor: cursor})
-		if err == nil {
-			features.Prompts = append(features.Prompts, result.Prompts...)
-			return result.NextCursor, nil
+	if listPrompts {
+		if err := paginate(server.Name, "prompts/list", func(cursor string) (string, error) {
+			result, err := runtime.session.ListPrompts(ctx, &mcp.ListPromptsParams{Cursor: cursor})
+			if err == nil {
+				features.Prompts = append(features.Prompts, result.Prompts...)
+				return result.NextCursor, nil
+			}
+			return "", err
+		}); err != nil {
+			return nil, err
 		}
-		return "", err
-	}); err != nil {
-		return nil, err
 	}
-	if err := paginate(server.Name, "resources/list", func(cursor string) (string, error) {
-		result, err := runtime.session.ListResources(ctx, &mcp.ListResourcesParams{Cursor: cursor})
-		if err == nil {
-			features.Resources = append(features.Resources, result.Resources...)
-			return result.NextCursor, nil
+	if listResources {
+		if err := paginate(server.Name, "resources/list", func(cursor string) (string, error) {
+			result, err := runtime.session.ListResources(ctx, &mcp.ListResourcesParams{Cursor: cursor})
+			if err == nil {
+				features.Resources = append(features.Resources, result.Resources...)
+				return result.NextCursor, nil
+			}
+			return "", err
+		}); err != nil {
+			return nil, err
 		}
-		return "", err
-	}); err != nil {
-		return nil, err
-	}
-	if err := paginate(server.Name, "resources/templates/list", func(cursor string) (string, error) {
-		result, err := runtime.session.ListResourceTemplates(ctx, &mcp.ListResourceTemplatesParams{Cursor: cursor})
-		if err == nil {
-			features.ResourceTemplates = append(features.ResourceTemplates, result.ResourceTemplates...)
-			return result.NextCursor, nil
+		if err := paginate(server.Name, "resources/templates/list", func(cursor string) (string, error) {
+			result, err := runtime.session.ListResourceTemplates(ctx, &mcp.ListResourceTemplatesParams{Cursor: cursor})
+			if err == nil {
+				features.ResourceTemplates = append(features.ResourceTemplates, result.ResourceTemplates...)
+				return result.NextCursor, nil
+			}
+			return "", err
+		}); err != nil {
+			return nil, err
 		}
-		return "", err
-	}); err != nil {
-		return nil, err
 	}
 	return features, nil
 }

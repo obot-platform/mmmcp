@@ -3,7 +3,9 @@ package http_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -97,6 +99,32 @@ func TestFactoryUsesComponentOAuthHandler(t *testing.T) {
 	}
 	if providedFor.Name != server.Name || providedFor.URL != server.URL {
 		t.Fatalf("provider server = %+v, want %+v", providedFor, server)
+	}
+}
+
+func TestFactoryDiscoverSkipsUnadvertisedFeatureLists(t *testing.T) {
+	server := mcp.NewServer(&mcp.Implementation{Name: "tools-only", Version: "1.0.0"}, nil)
+	server.AddTool(&mcp.Tool{Name: "echo", InputSchema: map[string]any{"type": "object"}}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{}, nil
+	})
+	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			switch method {
+			case "prompts/list", "resources/list", "resources/templates/list":
+				return nil, fmt.Errorf("%s is not implemented", method)
+			}
+			return next(ctx, method, req)
+		}
+	})
+	upstream := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true}))
+	defer upstream.Close()
+
+	features, err := componenthttp.NewFactory(componenthttp.FactoryOptions{}).Discover(t.Context(), config.Server{Name: "fixture", URL: upstream.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(features.Tools) != 1 || features.Tools[0].Name != "echo" {
+		t.Fatalf("tools = %+v, want [echo]", features.Tools)
 	}
 }
 

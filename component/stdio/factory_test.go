@@ -86,3 +86,42 @@ func TestStubbornStdioHelperProcess(t *testing.T) {
 		time.Sleep(time.Hour)
 	}
 }
+
+func TestDiscoverSkipsUnadvertisedFeatureLists(t *testing.T) {
+	factory := NewFactory(Options{LookupEnv: func(string) (string, bool) { return "", false }})
+	t.Cleanup(func() { _ = factory.Close() })
+	server := config.Server{
+		Name:    "tools-only",
+		Command: os.Args[0],
+		Args:    []string{"-test.run=TestToolsOnlyStdioHelperProcess"},
+		Env:     map[string]string{"MMMCP_TOOLS_ONLY_HELPER": "1"},
+	}
+
+	features, err := factory.Discover(t.Context(), server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(features.Tools) != 1 || features.Tools[0].Name != "echo" {
+		t.Fatalf("tools = %+v, want [echo]", features.Tools)
+	}
+}
+
+func TestToolsOnlyStdioHelperProcess(t *testing.T) {
+	if os.Getenv("MMMCP_TOOLS_ONLY_HELPER") != "1" {
+		return
+	}
+	server := mcp.NewServer(&mcp.Implementation{Name: "tools-only-helper", Version: "1"}, nil)
+	server.AddTool(&mcp.Tool{Name: "echo", InputSchema: map[string]any{"type": "object"}}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{}, nil
+	})
+	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			switch method {
+			case "prompts/list", "resources/list", "resources/templates/list":
+				return nil, fmt.Errorf("%s is not implemented", method)
+			}
+			return next(ctx, method, req)
+		}
+	})
+	_ = server.Run(t.Context(), &mcp.StdioTransport{})
+}
