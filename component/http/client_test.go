@@ -126,6 +126,44 @@ func TestFactoryDiscoverSkipsUnadvertisedFeatureLists(t *testing.T) {
 	if len(features.Tools) != 1 || features.Tools[0].Name != "echo" {
 		t.Fatalf("tools = %+v, want [echo]", features.Tools)
 	}
+	if len(features.Prompts) != 0 {
+		t.Fatalf("prompts = %+v, want none", features.Prompts)
+	}
+	if len(features.Resources) != 0 {
+		t.Fatalf("resources = %+v, want none", features.Resources)
+	}
+	if len(features.ResourceTemplates) != 0 {
+		t.Fatalf("resource templates = %+v, want none", features.ResourceTemplates)
+	}
+}
+
+func TestFactoryDiscoverSkipsUnadvertisedTools(t *testing.T) {
+	server := mcp.NewServer(&mcp.Implementation{Name: "prompts-only", Version: "1.0.0"}, nil)
+	server.AddPrompt(&mcp.Prompt{Name: "greet"}, func(context.Context, *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		return &mcp.GetPromptResult{}, nil
+	})
+	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			switch method {
+			case "tools/list", "resources/list", "resources/templates/list":
+				return nil, fmt.Errorf("%s is not implemented", method)
+			}
+			return next(ctx, method, req)
+		}
+	})
+	upstream := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true}))
+	defer upstream.Close()
+
+	features, err := componenthttp.NewFactory(componenthttp.FactoryOptions{}).Discover(t.Context(), config.Server{Name: "fixture", URL: upstream.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(features.Tools) != 0 {
+		t.Fatalf("tools = %+v, want none", features.Tools)
+	}
+	if len(features.Prompts) != 1 || features.Prompts[0].Name != "greet" {
+		t.Fatalf("prompts = %+v, want [greet]", features.Prompts)
+	}
 }
 
 func (h staticOAuthHandler) TokenSource(context.Context) (oauth2.TokenSource, error) {

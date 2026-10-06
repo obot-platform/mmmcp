@@ -104,6 +104,15 @@ func TestDiscoverSkipsUnadvertisedFeatureLists(t *testing.T) {
 	if len(features.Tools) != 1 || features.Tools[0].Name != "echo" {
 		t.Fatalf("tools = %+v, want [echo]", features.Tools)
 	}
+	if len(features.Prompts) != 0 {
+		t.Fatalf("prompts = %+v, want none", features.Prompts)
+	}
+	if len(features.Resources) != 0 {
+		t.Fatalf("resources = %+v, want none", features.Resources)
+	}
+	if len(features.ResourceTemplates) != 0 {
+		t.Fatalf("resource templates = %+v, want none", features.ResourceTemplates)
+	}
 }
 
 func TestToolsOnlyStdioHelperProcess(t *testing.T) {
@@ -118,6 +127,48 @@ func TestToolsOnlyStdioHelperProcess(t *testing.T) {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			switch method {
 			case "prompts/list", "resources/list", "resources/templates/list":
+				return nil, fmt.Errorf("%s is not implemented", method)
+			}
+			return next(ctx, method, req)
+		}
+	})
+	_ = server.Run(t.Context(), &mcp.StdioTransport{})
+}
+
+func TestDiscoverSkipsUnadvertisedTools(t *testing.T) {
+	factory := NewFactory(Options{LookupEnv: func(string) (string, bool) { return "", false }})
+	t.Cleanup(func() { _ = factory.Close() })
+	server := config.Server{
+		Name:    "prompts-only",
+		Command: os.Args[0],
+		Args:    []string{"-test.run=TestPromptsOnlyStdioHelperProcess"},
+		Env:     map[string]string{"MMMCP_PROMPTS_ONLY_HELPER": "1"},
+	}
+
+	features, err := factory.Discover(t.Context(), server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(features.Tools) != 0 {
+		t.Fatalf("tools = %+v, want none", features.Tools)
+	}
+	if len(features.Prompts) != 1 || features.Prompts[0].Name != "greet" {
+		t.Fatalf("prompts = %+v, want [greet]", features.Prompts)
+	}
+}
+
+func TestPromptsOnlyStdioHelperProcess(t *testing.T) {
+	if os.Getenv("MMMCP_PROMPTS_ONLY_HELPER") != "1" {
+		return
+	}
+	server := mcp.NewServer(&mcp.Implementation{Name: "prompts-only-helper", Version: "1"}, nil)
+	server.AddPrompt(&mcp.Prompt{Name: "greet"}, func(context.Context, *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		return &mcp.GetPromptResult{}, nil
+	})
+	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			switch method {
+			case "tools/list", "resources/list", "resources/templates/list":
 				return nil, fmt.Errorf("%s is not implemented", method)
 			}
 			return next(ctx, method, req)
