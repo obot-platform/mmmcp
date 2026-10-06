@@ -81,10 +81,10 @@ func (f *Factory) Discover(ctx context.Context, server config.Server) (*componen
 	// Only list the features the component advertises. A component that omits
 	// a capability may fail its list method with an error other than
 	// method-not-found.
-	listTools := capabilities != nil && capabilities.Tools != nil
-	listPrompts := capabilities != nil && capabilities.Prompts != nil
-	listResources := capabilities != nil && capabilities.Resources != nil
-	if listTools {
+	if capabilities == nil {
+		return features, nil
+	}
+	if capabilities.Tools != nil {
 		if err := paginate(server.Name, "tools/list", func(cursor string) (string, error) {
 			result, err := session.ListTools(ctx, &mcp.ListToolsParams{Cursor: cursor})
 			if err != nil {
@@ -96,7 +96,7 @@ func (f *Factory) Discover(ctx context.Context, server config.Server) (*componen
 			return nil, err
 		}
 	}
-	if listPrompts {
+	if capabilities.Prompts != nil {
 		if err := paginate(server.Name, "prompts/list", func(cursor string) (string, error) {
 			result, err := session.ListPrompts(ctx, &mcp.ListPromptsParams{Cursor: cursor})
 			if err != nil {
@@ -108,7 +108,7 @@ func (f *Factory) Discover(ctx context.Context, server config.Server) (*componen
 			return nil, err
 		}
 	}
-	if listResources {
+	if capabilities.Resources != nil {
 		if err := paginate(server.Name, "resources/list", func(cursor string) (string, error) {
 			result, err := session.ListResources(ctx, &mcp.ListResourcesParams{Cursor: cursor})
 			if err != nil {
