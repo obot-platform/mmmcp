@@ -78,55 +78,15 @@ func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, strin
 		return nil, "", err
 	}
 
-	r.mu.Lock()
-	if entry := r.entries[fingerprint]; entry != nil {
-		r.mu.Unlock()
-		select {
-		case <-entry.ready:
-			r.mu.Lock()
-			catalog, entryErr := entry.catalog, entry.err
-			if entryErr != nil {
-				r.mu.Unlock()
-				return catalog, fingerprint, entryErr
-			}
-			if entry.stale && cfg.ToolSearch {
-				if r.closed {
-					r.mu.Unlock()
-					return nil, fingerprint, context.Canceled
-				}
-				if entry.refreshDone == nil {
-					entry.refreshDone = make(chan struct{})
-				}
-				done := entry.refreshDone
-				if !entry.refreshing && entry.timer == nil && !r.closed {
-					entry.timer = time.AfterFunc(refreshDebounce, func() { r.runRefresh(fingerprint) })
-				}
-				r.mu.Unlock()
-				select {
-				case <-done:
-				case <-ctx.Done():
-					return nil, fingerprint, ctx.Err()
-				}
-				r.mu.Lock()
-				current := r.entries[fingerprint]
-				if current == nil || current.stale {
-					r.mu.Unlock()
-					return nil, fingerprint, ErrCatalogUnavailable
-				}
-				catalog, entryErr = current.catalog, current.err
-			}
-			r.mu.Unlock()
-			return catalog, fingerprint, entryErr
-		case <-ctx.Done():
-			return nil, fingerprint, ctx.Err()
-		}
+	entry, created := r.entryForConfig(fingerprint, cfg)
+	if !created {
+		compiled, err := r.waitForCatalog(ctx, fingerprint, entry, cfg.ToolSearch)
+		return compiled, fingerprint, err
 	}
-	entry := &registryEntry{ready: make(chan struct{}), config: cfg}
-	r.entries[fingerprint] = entry
-	r.mu.Unlock()
 
 	compiled, compileErr := compile(ctx, cfg, r.discoverer)
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	entry.catalog, entry.err = compiled, compileErr
 	if compileErr != nil {
 		delete(r.entries, fingerprint)
@@ -136,8 +96,63 @@ func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, strin
 		}
 	}
 	close(entry.ready)
-	r.mu.Unlock()
 	return compiled, fingerprint, compileErr
+}
+
+// entryForConfig returns the existing entry or creates one for the caller to compile.
+func (r *Registry) entryForConfig(fingerprint string, cfg *config.Config) (*registryEntry, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if entry := r.entries[fingerprint]; entry != nil {
+		return entry, false
+	}
+	entry := &registryEntry{ready: make(chan struct{}), config: cfg}
+	r.entries[fingerprint] = entry
+	return entry, true
+}
+
+// waitForCatalog waits for initial compilation and any required search refresh
+// without holding the registry mutex.
+func (r *Registry) waitForCatalog(ctx context.Context, fingerprint string, entry *registryEntry, toolSearch bool) (*Catalog, error) {
+	select {
+	case <-entry.ready:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	compiled, done, err := func() (*Catalog, <-chan struct{}, error) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if entry.err != nil || !entry.stale || !toolSearch {
+			return entry.catalog, nil, entry.err
+		}
+		if r.closed {
+			return nil, nil, context.Canceled
+		}
+		if entry.refreshDone == nil {
+			entry.refreshDone = make(chan struct{})
+		}
+		if !entry.refreshing && entry.timer == nil {
+			entry.timer = time.AfterFunc(refreshDebounce, func() { r.runRefresh(fingerprint) })
+		}
+		return nil, entry.refreshDone, nil
+	}()
+	if done == nil {
+		return compiled, err
+	}
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	current := r.entries[fingerprint]
+	if current == nil || current.stale {
+		return nil, ErrCatalogUnavailable
+	}
+	return current.catalog, current.err
 }
 
 // Refresh recompiles cfg and replaces its cached catalog only after success.
@@ -151,30 +166,32 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 	// refresh. Wait for any initial compile or earlier refresh to finish first.
 	if cfg.ToolSearch {
 		for {
-			r.mu.Lock()
-			if r.closed {
-				r.mu.Unlock()
-				return nil, fingerprint, context.Canceled
-			}
-			current = r.entries[fingerprint]
-			if current == nil {
-				r.mu.Unlock()
-				break
-			}
-			var done <-chan struct{}
-			select {
-			case <-current.ready:
-				if current.refreshDone != nil {
-					done = current.refreshDone
-				} else {
+			done, err := func() (<-chan struct{}, error) {
+				r.mu.Lock()
+				defer r.mu.Unlock()
+				if r.closed {
+					return nil, context.Canceled
+				}
+				current = r.entries[fingerprint]
+				if current == nil {
+					return nil, nil
+				}
+				select {
+				case <-current.ready:
+					if current.refreshDone != nil {
+						return current.refreshDone, nil
+					}
 					current.stale = true
 					current.refreshing = true
 					current.refreshDone = make(chan struct{})
+					return nil, nil
+				default:
+					return current.ready, nil
 				}
-			default:
-				done = current.ready
+			}()
+			if err != nil {
+				return nil, fingerprint, err
 			}
-			r.mu.Unlock()
 			if done == nil {
 				break
 			}
@@ -190,21 +207,20 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 	// Keep it stale after failure or while a notification refresh is pending.
 	if cfg.ToolSearch && current != nil {
 		r.mu.Lock()
+		defer r.mu.Unlock()
 		if r.closed {
-			r.mu.Unlock()
 			return nil, fingerprint, context.Canceled
 		}
 		r.finishRefresh(fingerprint, current, compiled, err)
-		r.mu.Unlock()
 		return compiled, fingerprint, err
 	}
 	if err != nil {
 		if cfg.ToolSearch {
 			r.mu.Lock()
+			defer r.mu.Unlock()
 			if entry := r.entries[fingerprint]; entry != nil {
 				entry.stale = true
 			}
-			r.mu.Unlock()
 		}
 		return nil, fingerprint, err
 	}
@@ -215,14 +231,17 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 	}
 	close(entry.ready)
 	compiled.StartSearchIndex(r.ctx)
-	r.mu.Lock()
-	old := r.entries[fingerprint]
-	r.entries[fingerprint] = entry
-	if old != nil && old.refreshDone != nil {
-		close(old.refreshDone)
-		old.refreshDone = nil
-	}
-	r.mu.Unlock()
+	old := func() *registryEntry {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		old := r.entries[fingerprint]
+		r.entries[fingerprint] = entry
+		if old != nil && old.refreshDone != nil {
+			close(old.refreshDone)
+			old.refreshDone = nil
+		}
+		return old
+	}()
 	if old != nil {
 		old.catalog.StopSearchIndex()
 	}
