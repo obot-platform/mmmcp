@@ -82,12 +82,6 @@ func (c *Catalog) RouteResource(uri string) (ResourceRoute, bool) {
 func newCatalog(c *Catalog) (*Catalog, error) {
 	sort.Slice(c.tools, func(i, j int) bool { return c.tools[i].Name < c.tools[j].Name })
 
-	// Build the visible tool list after sorting component tools; the list contributes to the snapshot ID.
-	if c.toolSearch {
-		c.visibleTools = toolsearch.Definitions()
-	} else {
-		c.visibleTools = append(c.visibleTools, c.tools...)
-	}
 	sort.Slice(c.visibleTools, func(i, j int) bool { return c.visibleTools[i].Name < c.visibleTools[j].Name })
 
 	sort.Slice(c.prompts, func(i, j int) bool { return c.prompts[i].Name < c.prompts[j].Name })

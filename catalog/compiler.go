@@ -23,8 +23,7 @@ type discoveryResult struct {
 }
 
 func compile(ctx context.Context, cfg *config.Config, discoverer component.Discoverer) (*Catalog, error) {
-	result := newCompileCatalog()
-	result.toolSearch = cfg.ToolSearch
+	result := newCompileCatalog(cfg.ToolSearch)
 	prefixes := make([]string, len(cfg.Servers))
 	for i, server := range cfg.Servers {
 		if len(cfg.Servers) <= 1 && server.Prefix == "" {
@@ -61,11 +60,16 @@ func compile(ctx context.Context, cfg *config.Config, discoverer component.Disco
 	return compiled, nil
 }
 
-func newCompileCatalog() *Catalog {
-	return &Catalog{
+func newCompileCatalog(toolSearch bool) *Catalog {
+	result := &Catalog{
+		toolSearch: toolSearch,
 		toolRoutes: make(map[string]ToolRoute), promptRoutes: make(map[string]PromptRoute),
 		resourceRoutes: make(map[string]ResourceRoute),
 	}
+	if toolSearch {
+		result.visibleTools = toolsearch.Definitions()
+	}
+	return result
 }
 
 func compileComponent(result *Catalog, templateOwners map[string]string, server config.Server, prefix string, features *component.Features) error {
@@ -82,7 +86,7 @@ func compileComponent(result *Catalog, templateOwners map[string]string, server 
 }
 
 func validateComponent(server config.Server, prefix string, features *component.Features) error {
-	return compileComponent(newCompileCatalog(), make(map[string]string), server, prefix, features)
+	return compileComponent(newCompileCatalog(false), make(map[string]string), server, prefix, features)
 }
 
 func discoverComponents(ctx context.Context, servers []config.Server, prefixes []string, discoverer component.Discoverer) ([]discoveryResult, error) {
@@ -171,6 +175,9 @@ func compileTools(c *Catalog, server config.Server, prefix string, discovered []
 			clone.Description = override.OverrideDescription
 		}
 		c.tools = append(c.tools, &clone)
+		if !c.toolSearch {
+			c.visibleTools = append(c.visibleTools, &clone)
+		}
 		c.toolRoutes[name] = ToolRoute{Component: server, Prefix: prefix, Tool: tool}
 	}
 	return nil
