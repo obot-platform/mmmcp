@@ -26,10 +26,10 @@ func TestRewriteClonesTypedResourceFieldsWithoutTraversingStructuredJSON(t *test
 	if rewritten == original || rewritten.Content[0] == originalLink || rewritten.Content[1] == originalEmbedded {
 		t.Fatal("result or typed content was not cloned")
 	}
-	if got := rewritten.Content[0].(*mcp.ResourceLink).URI; got != "mmmcp+files:file:///known" {
+	if got := rewritten.Content[0].(*mcp.ResourceLink).URI; got != "file://files//known" {
 		t.Fatalf("link URI = %q", got)
 	}
-	if got := rewritten.Content[1].(*mcp.EmbeddedResource).Resource.URI; got != "mmmcp+files:file:///dynamic.txt" {
+	if got := rewritten.Content[1].(*mcp.EmbeddedResource).Resource.URI; got != "file://files//dynamic.txt" {
 		t.Fatalf("embedded URI = %q", got)
 	}
 	if originalLink.URI != "file:///known" || originalEmbedded.Resource.URI != "file:///dynamic.txt" {
@@ -41,7 +41,7 @@ func TestRewriteClonesTypedResourceFieldsWithoutTraversingStructuredJSON(t *test
 
 	readOriginal := &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: "file:///known", Text: "data"}}}
 	readRewritten := compiled.RewriteReadResourceResult("files", readOriginal)
-	if readRewritten.Contents[0].URI != "mmmcp+files:file:///known" || readOriginal.Contents[0].URI != "file:///known" {
+	if readRewritten.Contents[0].URI != "file://files//known" || readOriginal.Contents[0].URI != "file:///known" {
 		t.Fatalf("read rewrite = %+v, original = %+v", readRewritten, readOriginal)
 	}
 }

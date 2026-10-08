@@ -22,7 +22,7 @@ func Resource(prefix, original string) (string, error) {
 	if prefix == "" {
 		return original, nil
 	}
-	return "mmmcp+" + prefix + ":" + original, nil
+	return compose(prefix, original), nil
 }
 
 // ResourceTemplate constructs an exposed URI template, namespaced when prefix is non-empty.
@@ -41,7 +41,23 @@ func ResourceTemplate(prefix, original string) (string, error) {
 	if prefix == "" {
 		return original, nil
 	}
-	return "mmmcp+" + prefix + ":" + original, nil
+	return compose(prefix, original), nil
+}
+
+// compose namespaces a URI or URI template by inserting the prefix as the first
+// segment after the scheme, so the original scheme is kept (MCP Apps hosts only
+// render ui:// resources). The rest of the original is kept verbatim, which keeps
+// the mapping one-to-one; prefixes never contain '/' or ':'.
+//
+//	ui://viewer/card.html -> ui://<prefix>/viewer/card.html
+//	file:///notes         -> file://<prefix>//notes
+//	urn:example:a         -> urn:<prefix>/example:a
+func compose(prefix, original string) string {
+	scheme, rest, _ := strings.Cut(original, ":")
+	if path, ok := strings.CutPrefix(rest, "//"); ok {
+		return scheme + "://" + prefix + "/" + path
+	}
+	return scheme + ":" + prefix + "/" + rest
 }
 
 func hasTemplateScheme(value string) bool {

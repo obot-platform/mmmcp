@@ -62,7 +62,11 @@ With one component and no explicit `prefix`, tool names, prompt names, resource
 URIs, and resource templates are exposed without namespace wrapping (after any
 configured overrides). With multiple components, tool and prompt identities
 are exposed as `<prefix>__<local-name>`, while
-resource URIs and templates use `mmmcp+<prefix>:<original-or-overridden-uri>`.
+resource URIs and templates keep their scheme and gain the prefix as the first
+segment after it: `ui://viewer/card.html` becomes `ui://<prefix>/viewer/card.html`,
+`file:///notes` becomes `file://<prefix>//notes`, and an opaque URI such as
+`urn:example:a` becomes `urn:<prefix>/example:a` (applied to the original or
+overridden URI). MCP Apps tools have their `_meta.ui.resourceUri` rewritten to match.
 An explicit `prefix` is always honored; otherwise each component name is
 sanitized deterministically when namespacing is required.
 Overrides identify the original component-local feature, apply before the

@@ -62,16 +62,17 @@ func newCompileCatalog() *Catalog {
 }
 
 func compileComponent(result *Catalog, templateOwners map[string]string, server config.Server, prefix string, features *component.Features) error {
-	if err := compileTools(result, server, prefix, features.Tools); err != nil {
-		return err
-	}
-	if err := compilePrompts(result, server, prefix, features.Prompts); err != nil {
-		return err
-	}
+	// Resources and templates first: tool metadata resolves UI resource URIs through their routes.
 	if err := compileResources(result, server, prefix, features.Resources); err != nil {
 		return err
 	}
-	return compileTemplates(result, templateOwners, server, prefix, features.ResourceTemplates)
+	if err := compileTemplates(result, templateOwners, server, prefix, features.ResourceTemplates); err != nil {
+		return err
+	}
+	if err := compileTools(result, server, prefix, features.Tools); err != nil {
+		return err
+	}
+	return compilePrompts(result, server, prefix, features.Prompts)
 }
 
 func validateComponent(server config.Server, prefix string, features *component.Features) error {
@@ -160,6 +161,7 @@ func compileTools(c *Catalog, server config.Server, prefix string, discovered []
 		}
 		clone := *tool
 		clone.Name = name
+		clone.Meta = c.rewriteUIMeta(prefix, tool.Meta)
 		if ok && override.OverrideDescription != "" {
 			clone.Description = override.OverrideDescription
 		}

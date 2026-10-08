@@ -149,9 +149,11 @@ func verifyEverythingServer(t *testing.T, session *mcp.ClientSession) {
 	resources := collectResources(t, session)
 	resourceURIs := make([]string, 0, len(resources))
 	for _, resource := range resources {
-		resourceURIs = append(resourceURIs, resource.URI)
+		// Namespaced URIs read <scheme>://<prefix>/<rest>; pair them on the prefix segment.
+		scheme, rest, _ := strings.Cut(resource.URI, "://")
+		resourceURIs = append(resourceURIs, rest+" ("+scheme+")")
 	}
-	requirePairedFeatures(t, "resources", resourceURIs, "mmmcp+http:", "mmmcp+stdio:")
+	requirePairedFeatures(t, "resources", resourceURIs, "http/", "stdio/")
 
 	for _, prefix := range []string{"http", "stdio"} {
 		t.Run(prefix+" echo", func(t *testing.T) {
