@@ -190,3 +190,49 @@ func requestProbe(t *testing.T, composite *Composite, method, path string) (*htt
 	}
 	return recorder, response
 }
+
+func TestCanceledSearchRefreshDoesNotDegradeReadiness(t *testing.T) {
+	composite := newProbeComposite(t)
+	composite.registry.Close()
+	started, release := make(chan struct{}), make(chan struct{})
+	var unblock sync.Once
+	defer unblock.Do(func() { close(release) })
+	discoverer := &changingToolDiscoverer{
+		tool:           &mcp.Tool{Name: "fixture", InputSchema: map[string]any{"type": "object"}},
+		refreshStarted: started, refreshRelease: release,
+	}
+	composite.registry = catalog.NewRegistry(discoverer)
+	composite.defaultConfig = &config.Config{ToolSearch: true, Servers: []config.Server{{Name: "fixture", URL: "https://example.invalid"}}}
+	if _, _, err := composite.registry.Get(t.Context(), composite.defaultConfig); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- composite.Refresh(ctx) }()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("refresh did not start")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("refresh caller did not stop waiting")
+	}
+	if composite.catalogDegraded.Load() {
+		t.Fatal("caller cancellation degraded catalog")
+	}
+	unblock.Do(func() { close(release) })
+	if _, _, err := composite.registry.Get(t.Context(), composite.defaultConfig); err != nil {
+		t.Fatalf("healthy caller after cancellation: %v", err)
+	}
+	recorder, response := requestProbe(t, composite, http.MethodGet, "/readyz")
+	if recorder.Code != http.StatusOK || response.Checks["catalog"].Status != "ok" {
+		t.Fatalf("readiness after canceled refresh = %d, %+v", recorder.Code, response)
+	}
+}

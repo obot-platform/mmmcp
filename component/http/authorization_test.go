@@ -104,23 +104,37 @@ func TestFactoryReturnsAuthorizationErrorForMalformedChallenge(t *testing.T) {
 }
 
 func TestFactoryPreservesAuthorizationErrorWhenOAuthFails(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource"`)
-		w.WriteHeader(http.StatusUnauthorized)
-	}))
-	defer upstream.Close()
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource", scope="files:read files:write", error="insufficient_scope", error_description="File write permission required"`)
+				w.WriteHeader(status)
+			}))
+			defer upstream.Close()
 
-	oauthErr := errors.New("interactive authorization failed")
-	provider := componenthttp.OAuthHandlerProviderFunc(func(context.Context, config.Server) (auth.OAuthHandler, error) {
-		return failingOAuthHandler{err: oauthErr}, nil
-	})
-	factory := componenthttp.NewFactory(componenthttp.FactoryOptions{OAuth: provider})
-	_, err := factory.Discover(t.Context(), config.Server{Name: "protected", URL: upstream.URL})
-	if _, ok := errors.AsType[*componenthttp.AuthorizationError](err); !ok {
-		t.Fatalf("error = %v, want *AuthorizationError", err)
-	}
-	if !errors.Is(err, oauthErr) {
-		t.Fatalf("error = %v, want wrapped OAuth error", err)
+			oauthErr := errors.New("interactive authorization failed")
+			handler := failingOAuthHandler{err: oauthErr}
+			provider := componenthttp.OAuthHandlerProviderFunc(func(context.Context, config.Server) (auth.OAuthHandler, error) {
+				return handler, nil
+			})
+			factory := componenthttp.NewFactory(componenthttp.FactoryOptions{OAuth: provider})
+			_, err := factory.Discover(t.Context(), config.Server{Name: "protected", URL: upstream.URL})
+			authErr, ok := errors.AsType[*componenthttp.AuthorizationError](err)
+			if !ok {
+				t.Fatalf("error = %v, want *AuthorizationError", err)
+			}
+			want := &componenthttp.AuthorizationError{
+				StatusCode: status, ResourceMetadata: "https://mcp.example.com/.well-known/oauth-protected-resource",
+				Scope: "files:read files:write", Scopes: []string{"files:read", "files:write"},
+				ErrorCode: "insufficient_scope", ErrorDescription: "File write permission required",
+			}
+			if !reflect.DeepEqual(authErr, want) {
+				t.Errorf("authorization error = %+v, want %+v", authErr, want)
+			}
+			if !errors.Is(err, oauthErr) {
+				t.Fatalf("error = %v, want wrapped OAuth error", err)
+			}
+		})
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	componentstdio "github.com/obot-platform/mmmcp/component/stdio"
 	"github.com/obot-platform/mmmcp/config"
 	"github.com/obot-platform/mmmcp/storage"
+	"github.com/obot-platform/mmmcp/toolsearch"
 )
 
 const (
@@ -110,13 +111,27 @@ func New(ctx context.Context, cfg *config.Config, opts Options) (*Composite, err
 func (c *Composite) HTTPHandler() http.Handler { return c.handler }
 
 // ResolveToolCall resolves a call against the same current catalog used by the
-// frontend. Callers can use the result for policy checks before forwarding the
-// request; the frontend resolves the call again before invoking a component.
+// frontend. If a valid generic reference is missing or stale, it can
+// rediscover the configured components, bounded per configuration. This lets
+// a gateway replica catch up with a frontend whose catalog refreshed first.
+// Callers can use the result for policy checks before forwarding the request;
+// the frontend resolves the call again before invoking a component.
 func (c *Composite) ResolveToolCall(ctx context.Context, cfg *config.Config, name string, arguments json.RawMessage) (catalog.ResolvedToolCall, bool, error) {
 	if c == nil || c.closed.Load() {
 		return catalog.ResolvedToolCall{}, false, errors.New("mmmcp: composite server is closed")
 	}
 	compiled, _, err := c.registry.Get(ctx, cfg)
+	if err != nil {
+		return catalog.ResolvedToolCall{}, false, err
+	}
+	call, ok, err := compiled.ResolveToolCall(ctx, name, arguments)
+	if err != nil || !ok || call.Result == nil || name != toolsearch.CallToolName {
+		return call, ok, err
+	}
+	if _, err := toolsearch.ParseCallArguments(arguments); err != nil {
+		return call, ok, nil
+	}
+	compiled, err = c.registry.RefreshOnMiss(ctx, cfg)
 	if err != nil {
 		return catalog.ResolvedToolCall{}, false, err
 	}
@@ -129,7 +144,9 @@ func (c *Composite) Refresh(ctx context.Context) error {
 		return errors.New("mmmcp: composite server is closed")
 	}
 	_, _, err := c.registry.Refresh(ctx, c.defaultConfig)
-	c.catalogDegraded.Store(err != nil)
+	if !c.defaultConfig.ToolSearch || ctx.Err() == nil || !errors.Is(err, ctx.Err()) {
+		c.catalogDegraded.Store(err != nil)
+	}
 	return err
 }
 
