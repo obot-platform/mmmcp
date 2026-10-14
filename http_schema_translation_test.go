@@ -133,7 +133,16 @@ func TestGenericInvocationPreservesSearchSchemas(t *testing.T) {
 					if name == "absent" {
 						want = []any{float64(1), float64(2)}
 					}
-					assertToolOutput(t, result, want)
+					if version == "2025-11-25" && name == "absent" {
+						if result.StructuredContent != nil || len(result.Content) != 1 {
+							t.Fatalf("legacy array was not moved to text: %+v", result)
+						}
+						if text, ok := result.Content[0].(*mcp.TextContent); !ok || text.Text != "[1,2]" {
+							t.Fatalf("legacy array data missing: %+v", result.Content)
+						}
+					} else {
+						assertToolOutput(t, result, want)
+					}
 				}
 				if !called {
 					t.Fatalf("search did not retain %s", name)

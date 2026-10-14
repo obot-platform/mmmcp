@@ -1,8 +1,10 @@
 package mmmcp
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -40,7 +42,7 @@ func omitModernToolOutputSchema(request mcp.Request, tool *mcp.Tool, compiled *c
 		return tool
 	}
 	route, ok := compiled.RouteTool(tool.Name)
-	if !ok || !shouldOmitModernToolOutputSchema(request, route.ProtocolVersion) {
+	if !ok || !needsLegacyToolOutputTranslation(request, route.ProtocolVersion) {
 		return tool
 	}
 	// List definitions share cached tools across frontend versions.
@@ -50,7 +52,20 @@ func omitModernToolOutputSchema(request mcp.Request, tool *mcp.Tool, compiled *c
 	return &clone
 }
 
-func normalizeCallToolResult(request mcp.Request, result *mcp.CallToolResult) (*mcp.CallToolResult, error) {
+func normalizeCallToolResult(request mcp.Request, result *mcp.CallToolResult, upstreamProtocolVersion string) (*mcp.CallToolResult, error) {
+	if result != nil && result.StructuredContent != nil && needsLegacyToolOutputTranslation(request, upstreamProtocolVersion) {
+		structured, err := json.Marshal(result.StructuredContent)
+		if err != nil {
+			return nil, fmt.Errorf("marshal structured tool content: %w", err)
+		}
+		// Legacy clients accept JSON objects, but reject arrays, scalars and null.
+		if structured[0] != '{' {
+			clone := *result
+			clone.Content = legacyToolContent(result.Content, structured)
+			clone.StructuredContent = nil
+			result = &clone
+		}
+	}
 	return normalizeOperationResult(request, result, func() *mcp.CallToolResult { return new(mcp.CallToolResult) }, false)
 }
 
@@ -113,9 +128,39 @@ func normalizeOperationResult[T operationResult](request mcp.Request, result T, 
 	return normalized, nil
 }
 
-// shouldOmitModernToolOutputSchema limits this compatibility policy to the exact known
+// legacyToolContent preserves data before structuredContent is removed: a modern
+// upstream can put its entire result there and leave content empty. Append the
+// JSON as text unless an existing text block already contains the same data.
+func legacyToolContent(content []mcp.Content, structured json.RawMessage) []mcp.Content {
+	value, valid := decodeJSONValue(structured)
+	if valid {
+		for _, block := range content {
+			if text, ok := block.(*mcp.TextContent); ok {
+				existing, valid := decodeJSONValue([]byte(text.Text))
+				if valid && reflect.DeepEqual(existing, value) {
+					return content
+				}
+			}
+		}
+	}
+	return append(slices.Clone(content), &mcp.TextContent{Text: string(structured)})
+}
+
+func decodeJSONValue(data []byte) (any, bool) {
+	// Validate the entire block, then preserve number precision for comparison.
+	if !json.Valid(data) {
+		return nil, false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var value any
+	err := decoder.Decode(&value)
+	return value, err == nil
+}
+
+// needsLegacyToolOutputTranslation limits this compatibility policy to the exact known
 // upstream/frontend protocol pair, independently of the SDK's current version.
-func shouldOmitModernToolOutputSchema(request mcp.Request, upstreamProtocolVersion string) bool {
+func needsLegacyToolOutputTranslation(request mcp.Request, upstreamProtocolVersion string) bool {
 	// The SDK accessor reads modern request metadata or the legacy handshake.
 	frontend, ok := request.(interface{ ProtocolVersion() string })
 	return upstreamProtocolVersion == "2026-07-28" && ok && frontend.ProtocolVersion() == "2025-11-25"

@@ -32,7 +32,7 @@ func TestNormalizeOperationResultsForCurrentFrontendWire(t *testing.T) {
 			name: "tools/call",
 			normalize: func() (any, error) {
 				request := &mcp.ServerRequest[*mcp.CallToolParams]{Params: &mcp.CallToolParams{Meta: meta}}
-				return normalizeCallToolResult(request, &mcp.CallToolResult{Meta: downstreamServerMeta(), Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}})
+				return normalizeCallToolResult(request, &mcp.CallToolResult{Meta: downstreamServerMeta(), Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, currentProtocolVersion)
 			},
 		},
 		{
@@ -84,7 +84,7 @@ func TestNormalizeOperationResultsForLegacyFrontendWire(t *testing.T) {
 			normalize: func() (any, error) {
 				var downstream mcp.CallToolResult
 				unmarshalCurrentResult(t, &downstream)
-				return normalizeCallToolResult(&mcp.ServerRequest[*mcp.CallToolParams]{Params: &mcp.CallToolParams{}}, &downstream)
+				return normalizeCallToolResult(&mcp.ServerRequest[*mcp.CallToolParams]{Params: &mcp.CallToolParams{}}, &downstream, currentProtocolVersion)
 			},
 		},
 		{
@@ -225,7 +225,7 @@ func TestOutputSchemaOmissionPreservesCatalog(t *testing.T) {
 	}
 }
 
-func TestOutputSchemaOmissionRequiresExactProtocolPair(t *testing.T) {
+func TestToolOutputTranslationRequiresExactProtocolPair(t *testing.T) {
 	tests := []struct {
 		name     string
 		upstream string
@@ -288,6 +288,76 @@ func TestOutputSchemaOmissionRequiresExactProtocolPair(t *testing.T) {
 			tools := omitModernToolOutputSchemas(request, compiled.Tools(), compiled)
 			if (tools[0].OutputSchema == nil) != test.omit {
 				t.Fatalf("outputSchema = %#v, want omitted=%t", tools[0].OutputSchema, test.omit)
+			}
+			result, err := normalizeCallToolResult(request, &mcp.CallToolResult{
+				Content:           []mcp.Content{&mcp.TextContent{Text: "[1,2]"}},
+				StructuredContent: []int{1, 2},
+			}, test.upstream)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (result.StructuredContent == nil) != test.omit || len(result.Content) != 1 {
+				t.Fatalf("unexpected array translation for protocol pair: %+v", result)
+			}
+		})
+	}
+}
+
+func TestLegacyStructuredToolContent(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		value          any
+		text           string
+		wantStructured string
+		wantExtraText  string
+	}{
+		{
+			name:           "object is retained",
+			value:          map[string]any{"ok": true},
+			text:           "ok",
+			wantStructured: `{"ok":true}`,
+		},
+		{
+			name:  "formatted array is not duplicated",
+			value: json.RawMessage(`[{"a":1,"b":2}]`),
+			text:  "[\n  {\"b\": 2, \"a\": 1}\n]",
+		},
+		{
+			name:          "different large integers",
+			value:         json.RawMessage(`[9007199254740993]`),
+			text:          "[9007199254740992]",
+			wantExtraText: "[9007199254740993]",
+		},
+		{
+			name:          "JSON with trailing text",
+			value:         []int{1},
+			text:          "[1] extra",
+			wantExtraText: "[1]",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := &mcp.ServerRequest[*mcp.CallToolParams]{Params: &mcp.CallToolParams{Meta: mcp.Meta{mcp.MetaKeyProtocolVersion: "2025-11-25"}}}
+			original := &mcp.CallToolResult{
+				Content:           []mcp.Content{&mcp.TextContent{Text: test.text}},
+				StructuredContent: test.value,
+			}
+			before := string(mustJSON(t, original))
+			result, err := normalizeCallToolResult(request, original, currentProtocolVersion)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := string(marshalWireResult(t, result)["structuredContent"]); got != test.wantStructured {
+				t.Fatalf("structuredContent = %s, want %s", got, test.wantStructured)
+			}
+			wantContent := append([]mcp.Content(nil), original.Content...)
+			if test.wantExtraText != "" {
+				wantContent = append(wantContent, &mcp.TextContent{Text: test.wantExtraText})
+			}
+			if !reflect.DeepEqual(result.Content, wantContent) {
+				t.Fatalf("content = %+v, want %+v", result.Content, wantContent)
+			}
+			if string(mustJSON(t, original)) != before {
+				t.Fatal("upstream result was mutated")
 			}
 		})
 	}
