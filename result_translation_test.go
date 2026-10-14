@@ -32,7 +32,7 @@ func TestNormalizeOperationResultsForCurrentFrontendWire(t *testing.T) {
 			name: "tools/call",
 			normalize: func() (any, error) {
 				request := &mcp.ServerRequest[*mcp.CallToolParams]{Params: &mcp.CallToolParams{Meta: meta}}
-				return normalizeCallToolResult(request, &mcp.CallToolResult{Meta: downstreamServerMeta(), Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, currentProtocolVersion)
+				return normalizeCallToolResult(request, &mcp.CallToolResult{Meta: downstreamServerMeta(), Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}})
 			},
 		},
 		{
@@ -84,7 +84,7 @@ func TestNormalizeOperationResultsForLegacyFrontendWire(t *testing.T) {
 			normalize: func() (any, error) {
 				var downstream mcp.CallToolResult
 				unmarshalCurrentResult(t, &downstream)
-				return normalizeCallToolResult(&mcp.ServerRequest[*mcp.CallToolParams]{Params: &mcp.CallToolParams{}}, &downstream, currentProtocolVersion)
+				return normalizeCallToolResult(&mcp.ServerRequest[*mcp.CallToolParams]{Params: &mcp.CallToolParams{}}, &downstream)
 			},
 		},
 		{
@@ -225,7 +225,7 @@ func TestOutputSchemaOmissionPreservesCatalog(t *testing.T) {
 	}
 }
 
-func TestToolOutputOmissionRequiresExactProtocolPair(t *testing.T) {
+func TestOutputSchemaOmissionRequiresExactProtocolPair(t *testing.T) {
 	tests := []struct {
 		name     string
 		upstream string
@@ -288,18 +288,6 @@ func TestToolOutputOmissionRequiresExactProtocolPair(t *testing.T) {
 			tools := omitModernToolOutputSchemas(request, compiled.Tools(), compiled)
 			if (tools[0].OutputSchema == nil) != test.omit {
 				t.Fatalf("outputSchema = %#v, want omitted=%t", tools[0].OutputSchema, test.omit)
-			}
-			original := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "authored"}}, StructuredContent: map[string]any{"ok": true}}
-			result, err := normalizeCallToolResult(request, original, test.upstream)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if test.omit {
-				if result.StructuredContent != nil || len(result.Content) != 2 || result.Content[1].(*mcp.TextContent).Text != `{"ok":true}` {
-					t.Fatalf("target pair output was not moved into content: %+v", result)
-				}
-			} else if !reflect.DeepEqual(result.StructuredContent, original.StructuredContent) || !reflect.DeepEqual(result.Content, original.Content) {
-				t.Fatalf("other protocol pair output was changed: %+v", result)
 			}
 		})
 	}

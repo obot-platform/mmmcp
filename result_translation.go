@@ -1,10 +1,8 @@
 package mmmcp
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"slices"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -42,7 +40,7 @@ func omitModernToolOutputSchema(request mcp.Request, tool *mcp.Tool, compiled *c
 		return tool
 	}
 	route, ok := compiled.RouteTool(tool.Name)
-	if !ok || !shouldOmitModernToolOutput(request, route.ProtocolVersion) {
+	if !ok || !shouldOmitModernToolOutputSchema(request, route.ProtocolVersion) {
 		return tool
 	}
 	// List definitions share cached tools across frontend versions.
@@ -52,28 +50,19 @@ func omitModernToolOutputSchema(request mcp.Request, tool *mcp.Tool, compiled *c
 	return &clone
 }
 
-func normalizeCallToolResult(request mcp.Request, result *mcp.CallToolResult, upstreamProtocolVersion string) (*mcp.CallToolResult, error) {
-	if result == nil {
-		return nil, nil
-	}
-	normalized, err := normalizeOperationResult(request, result, func() *mcp.CallToolResult { return new(mcp.CallToolResult) }, false, shouldOmitModernToolOutput(request, upstreamProtocolVersion))
-	// JSON decoding into any loses explicit null. Retain it for modern clients
-	// when represented by the caller; nulls already lost upstream are unknowable.
-	if err == nil && frontendUsesCurrentProtocol(request) && normalized.StructuredContent == nil && result.StructuredContent != nil {
-		normalized.StructuredContent = json.RawMessage("null")
-	}
-	return normalized, err
+func normalizeCallToolResult(request mcp.Request, result *mcp.CallToolResult) (*mcp.CallToolResult, error) {
+	return normalizeOperationResult(request, result, func() *mcp.CallToolResult { return new(mcp.CallToolResult) }, false)
 }
 
 func normalizeGetPromptResult(request mcp.Request, result *mcp.GetPromptResult) (*mcp.GetPromptResult, error) {
-	return normalizeOperationResult(request, result, func() *mcp.GetPromptResult { return new(mcp.GetPromptResult) }, false, false)
+	return normalizeOperationResult(request, result, func() *mcp.GetPromptResult { return new(mcp.GetPromptResult) }, false)
 }
 
 func normalizeReadResourceResult(request mcp.Request, result *mcp.ReadResourceResult) (*mcp.ReadResourceResult, error) {
-	return normalizeOperationResult(request, result, func() *mcp.ReadResourceResult { return new(mcp.ReadResourceResult) }, true, false)
+	return normalizeOperationResult(request, result, func() *mcp.ReadResourceResult { return new(mcp.ReadResourceResult) }, true)
 }
 
-func normalizeOperationResult[T operationResult](request mcp.Request, result T, create func() T, cacheable, omitStructuredContent bool) (T, error) {
+func normalizeOperationResult[T operationResult](request mcp.Request, result T, create func() T, cacheable bool) (T, error) {
 	var zero T
 	if any(result) == nil {
 		return result, nil
@@ -110,17 +99,6 @@ func normalizeOperationResult[T operationResult](request mcp.Request, result T, 
 		}
 	} else {
 		delete(wire, "resultType")
-		if tool, ok := any(result).(*mcp.CallToolResult); ok && omitStructuredContent {
-			if structured, present := wire["structuredContent"]; present {
-				// Use the already serialized value before decoding into any,
-				// which would lose explicit null and precision for large numbers.
-				wire["content"], err = json.Marshal(legacyToolContent(tool.Content, structured))
-				if err != nil {
-					return zero, fmt.Errorf("marshal legacy tool content: %w", err)
-				}
-			}
-			delete(wire, "structuredContent")
-		}
 	}
 	stripServerInfo(wire)
 
@@ -135,39 +113,9 @@ func normalizeOperationResult[T operationResult](request mcp.Request, result T, 
 	return normalized, nil
 }
 
-// legacyToolContent preserves data before structuredContent is removed: a modern
-// upstream can put its entire result there and leave content empty. Append the
-// JSON as text unless an existing text block already contains the same data.
-func legacyToolContent(content []mcp.Content, structured json.RawMessage) []mcp.Content {
-	value, valid := decodeJSONValue(structured)
-	if valid {
-		for _, block := range content {
-			if text, ok := block.(*mcp.TextContent); ok {
-				existing, valid := decodeJSONValue([]byte(text.Text))
-				if valid && reflect.DeepEqual(existing, value) {
-					return content
-				}
-			}
-		}
-	}
-	return append(slices.Clone(content), &mcp.TextContent{Text: string(structured)})
-}
-
-func decodeJSONValue(data []byte) (any, bool) {
-	// Validate the entire block, then preserve number precision for comparison.
-	if !json.Valid(data) {
-		return nil, false
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	var value any
-	err := decoder.Decode(&value)
-	return value, err == nil
-}
-
-// shouldOmitModernToolOutput limits this compatibility policy to the exact known
+// shouldOmitModernToolOutputSchema limits this compatibility policy to the exact known
 // upstream/frontend protocol pair, independently of the SDK's current version.
-func shouldOmitModernToolOutput(request mcp.Request, upstreamProtocolVersion string) bool {
+func shouldOmitModernToolOutputSchema(request mcp.Request, upstreamProtocolVersion string) bool {
 	// The SDK accessor reads modern request metadata or the legacy handshake.
 	frontend, ok := request.(interface{ ProtocolVersion() string })
 	return upstreamProtocolVersion == "2026-07-28" && ok && frontend.ProtocolVersion() == "2025-11-25"

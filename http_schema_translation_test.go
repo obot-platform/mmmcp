@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -50,7 +49,7 @@ func TestLegacyOutputSchemaProjection(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			assertToolOutput(t, result, version, map[string]any{"ok": true})
+			assertToolOutput(t, result, map[string]any{"ok": true})
 		})
 	}
 }
@@ -134,7 +133,7 @@ func TestGenericInvocationPreservesSearchSchemas(t *testing.T) {
 					if name == "absent" {
 						want = []any{float64(1), float64(2)}
 					}
-					assertToolOutput(t, result, version, want)
+					assertToolOutput(t, result, want)
 				}
 				if !called {
 					t.Fatalf("search did not retain %s", name)
@@ -144,28 +143,12 @@ func TestGenericInvocationPreservesSearchSchemas(t *testing.T) {
 	}
 }
 
-// Check legacy data survives in content, and modern clients retain the value.
-func assertToolOutput(t *testing.T, result *mcp.CallToolResult, version string, want any) {
+// Output schema omission must not change structured tool results.
+func assertToolOutput(t *testing.T, result *mcp.CallToolResult, want any) {
 	t.Helper()
-	if version != "2025-11-25" {
-		if !reflect.DeepEqual(result.StructuredContent, want) {
-			t.Fatalf("modern structured result = %#v, want %#v", result.StructuredContent, want)
-		}
-		return
+	if !reflect.DeepEqual(result.StructuredContent, want) {
+		t.Fatalf("structured result = %#v, want %#v", result.StructuredContent, want)
 	}
-	if result.StructuredContent != nil {
-		t.Fatalf("legacy result still has structured content: %#v", result.StructuredContent)
-	}
-	data, err := json.Marshal(want)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, block := range result.Content {
-		if text, ok := block.(*mcp.TextContent); ok && strings.TrimSpace(text.Text) == string(data) {
-			return
-		}
-	}
-	t.Fatalf("legacy result data %s missing from content: %+v", data, result.Content)
 }
 
 func protocolSchemaUpstream(t *testing.T, version string) *httptest.Server {
