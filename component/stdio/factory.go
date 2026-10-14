@@ -69,6 +69,7 @@ func (f *Factory) Discover(ctx context.Context, server config.Server) (*componen
 	features := new(component.Features)
 	var capabilities *mcp.ServerCapabilities
 	if initialized := runtime.session.InitializeResult(); initialized != nil {
+		features.ProtocolVersion = initialized.ProtocolVersion
 		capabilities = initialized.Capabilities
 		if initialized.ServerInfo != nil {
 			features.ServerInfo = &mcp.Implementation{

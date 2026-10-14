@@ -431,3 +431,38 @@ func TestCompileIgnoresOverridesForUndiscoveredFeatures(t *testing.T) {
 func (d featureDiscoverer) Discover(_ context.Context, server config.Server) (*component.Features, error) {
 	return d.features[server.Name], nil
 }
+
+func TestCompileProtocolChangeExpiresCatalogCursor(t *testing.T) {
+	cfg := &config.Config{Servers: []config.Server{{Name: "fixture", Prefix: "gh", URL: "https://example.invalid"}}}
+	var cursor string
+	for _, version := range []string{"2025-11-25", "2026-07-28"} {
+		compiled, err := catalog.Compile(t.Context(), cfg, featureDiscoverer{features: map[string]*component.Features{
+			"fixture": {
+				ProtocolVersion: version,
+				Tools: []*mcp.Tool{
+					{Name: "first", InputSchema: map[string]any{"type": "object"}},
+					{Name: "second", InputSchema: map[string]any{"type": "object"}},
+				},
+			},
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, tool := range compiled.Tools() {
+			route, ok := compiled.RouteTool(tool.Name)
+			if !ok || route.ProtocolVersion != version {
+				t.Fatalf("tool route lost protocol version: %+v", route)
+			}
+		}
+		if cursor != "" {
+			if _, _, err := compiled.PageTools(cursor, 1); err == nil {
+				t.Fatal("cursor from a different upstream protocol version was accepted")
+			}
+			continue
+		}
+		_, cursor, err = compiled.PageTools("", 1)
+		if err != nil || cursor == "" {
+			t.Fatalf("first catalog cursor = %q, error = %v", cursor, err)
+		}
+	}
+}

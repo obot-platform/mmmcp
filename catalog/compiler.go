@@ -73,7 +73,7 @@ func newCompileCatalog(toolSearch bool) *Catalog {
 }
 
 func compileComponent(result *Catalog, templateOwners map[string]string, server config.Server, prefix string, features *component.Features) error {
-	if err := compileTools(result, server, prefix, features.Tools); err != nil {
+	if err := compileTools(result, server, prefix, features.Tools, features.ProtocolVersion); err != nil {
 		return err
 	}
 	if err := compilePrompts(result, server, prefix, features.Prompts); err != nil {
@@ -137,7 +137,7 @@ func discoverComponents(ctx context.Context, servers []config.Server, prefixes [
 	return results, nil
 }
 
-func compileTools(c *Catalog, server config.Server, prefix string, discovered []*mcp.Tool) error {
+func compileTools(c *Catalog, server config.Server, prefix string, discovered []*mcp.Tool, protocolVersion string) error {
 	if server.DisableTools {
 		return nil
 	}
@@ -178,7 +178,7 @@ func compileTools(c *Catalog, server config.Server, prefix string, discovered []
 		if !c.toolSearch {
 			c.visibleTools = append(c.visibleTools, &clone)
 		}
-		c.toolRoutes[name] = ToolRoute{Component: server, Prefix: prefix, Tool: tool}
+		c.toolRoutes[name] = ToolRoute{Component: server, Prefix: prefix, Tool: tool, ProtocolVersion: protocolVersion}
 	}
 	return nil
 }

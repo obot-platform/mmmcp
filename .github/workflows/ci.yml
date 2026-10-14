@@ -39,7 +39,7 @@ jobs:
       - name: Lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.13
+          version: v2.14.0
       - name: Check GoReleaser configuration
         uses: goreleaser/goreleaser-action@v6
         with:

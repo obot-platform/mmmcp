@@ -20,6 +20,8 @@ const (
 
 // Features is a complete component discovery snapshot.
 type Features struct {
+	// ProtocolVersion is the version negotiated for this discovery connection.
+	ProtocolVersion   string
 	ServerInfo        *mcp.Implementation
 	Tools             []*mcp.Tool
 	Prompts           []*mcp.Prompt

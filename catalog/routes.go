@@ -8,9 +8,11 @@ import (
 
 // ToolRoute maps an exposed tool identity back to its component identity.
 type ToolRoute struct {
-	Component config.Server
-	Prefix    string
-	Tool      *mcp.Tool
+	// ProtocolVersion is the component version used to discover this tool.
+	ProtocolVersion string
+	Component       config.Server
+	Prefix          string
+	Tool            *mcp.Tool
 }
 
 // PromptRoute maps an exposed prompt identity back to its component identity.

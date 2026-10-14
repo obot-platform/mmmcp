@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/obot-platform/mmmcp"
 	"github.com/obot-platform/mmmcp/config"
+	"github.com/obot-platform/mmmcp/toolsearch"
 )
 
 func TestDynamicToolChangesNotifyOnNextRequest(t *testing.T) {
@@ -176,4 +178,87 @@ func testDynamicToolChanges(t *testing.T, protocol string) {
 		t.Fatal(err)
 	}
 	checkNotification(otherChanged, !stateless)
+}
+
+func TestProjectedToolChangesNotifyOnNextRequest(t *testing.T) {
+	for _, search := range []bool{false, true} {
+		t.Run("search="+strconv.FormatBool(search), func(t *testing.T) {
+			legacy := protocolSchemaUpstream(t, "2025-11-25")
+			modern := protocolSchemaUpstream(t, "2026-07-28")
+			var current atomic.Pointer[config.Config]
+			setConfig := func(url string) {
+				current.Store(&config.Config{ToolSearch: search, Servers: []config.Server{{Name: "fixture", URL: url}}})
+			}
+			setConfig(legacy.URL)
+			composite, err := mmmcp.New(t.Context(), current.Load(), mmmcp.Options{DSN: "sqlite://:memory:"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = composite.Close() })
+			frontend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				ctx := mmmcp.ContextWithConfigID(r.Context(), "projected-tools")
+				ctx = mmmcp.ContextWithConfig(ctx, current.Load())
+				composite.HTTPHandler().ServeHTTP(w, r.WithContext(ctx))
+			}))
+			t.Cleanup(frontend.Close)
+			changed := make(chan struct{}, 10)
+			client := mcp.NewClient(&mcp.Implementation{Name: "projection-notifications", Version: "test"}, &mcp.ClientOptions{
+				ToolListChangedHandler: func(context.Context, *mcp.ToolListChangedRequest) { changed <- struct{}{} },
+			})
+			session, err := client.Connect(t.Context(), &mcp.StreamableClientTransport{Endpoint: frontend.URL, HTTPClient: frontend.Client()}, &mcp.ClientSessionOptions{ProtocolVersion: "2025-11-25"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = session.Close() })
+			definition := func() *mcp.Tool {
+				t.Helper()
+				if search {
+					result, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: toolsearch.SearchToolName, Arguments: map[string]any{"query": "object"}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					found := decodeSearchResults(t, result)
+					if len(found.Tools) != 1 {
+						t.Fatalf("search tools = %+v", found.Tools)
+					}
+					return found.Tools[0].Tool
+				}
+				listed, err := session.ListTools(t.Context(), nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(listed.Tools) != 1 {
+					t.Fatalf("listed tools = %+v", listed.Tools)
+				}
+				return listed.Tools[0]
+			}
+			if definition().OutputSchema == nil {
+				t.Fatal("legacy upstream schema missing before switch")
+			}
+			for _, url := range []string{modern.URL, legacy.URL} {
+				setConfig(url)
+				if err := session.Ping(t.Context(), nil); err != nil {
+					t.Fatal(err)
+				}
+				timeout := 100 * time.Millisecond
+				if !search {
+					timeout = 5 * time.Second
+				}
+				select {
+				case <-changed:
+					if search {
+						t.Fatal("unchanged search definitions triggered notification")
+					}
+				case <-time.After(timeout):
+					if !search {
+						t.Fatal("projected tool schema changed without notification")
+					}
+				}
+				omit := url == modern.URL && !search
+				if (definition().OutputSchema == nil) != omit {
+					t.Fatal("frontend received the wrong schema")
+				}
+			}
+		})
+	}
 }

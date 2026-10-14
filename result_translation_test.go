@@ -1,11 +1,25 @@
 package mmmcp
 
 import (
+	"context"
 	"encoding/json"
+	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/obot-platform/mmmcp/catalog"
+	"github.com/obot-platform/mmmcp/component"
+	"github.com/obot-platform/mmmcp/config"
 )
+
+type projectionDiscoverer struct {
+	features *component.Features
+}
+
+func (d projectionDiscoverer) Discover(context.Context, config.Server) (*component.Features, error) {
+	return d.features, nil
+}
 
 func TestNormalizeOperationResultsForCurrentFrontendWire(t *testing.T) {
 	meta := mcp.Meta{mcp.MetaKeyProtocolVersion: currentProtocolVersion}
@@ -18,7 +32,7 @@ func TestNormalizeOperationResultsForCurrentFrontendWire(t *testing.T) {
 			name: "tools/call",
 			normalize: func() (any, error) {
 				request := &mcp.ServerRequest[*mcp.CallToolParams]{Params: &mcp.CallToolParams{Meta: meta}}
-				return normalizeCallToolResult(request, &mcp.CallToolResult{Meta: downstreamServerMeta(), Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}})
+				return normalizeCallToolResult(request, &mcp.CallToolResult{Meta: downstreamServerMeta(), Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, currentProtocolVersion)
 			},
 		},
 		{
@@ -70,7 +84,7 @@ func TestNormalizeOperationResultsForLegacyFrontendWire(t *testing.T) {
 			normalize: func() (any, error) {
 				var downstream mcp.CallToolResult
 				unmarshalCurrentResult(t, &downstream)
-				return normalizeCallToolResult(&mcp.ServerRequest[*mcp.CallToolParams]{Params: &mcp.CallToolParams{}}, &downstream)
+				return normalizeCallToolResult(&mcp.ServerRequest[*mcp.CallToolParams]{Params: &mcp.CallToolParams{}}, &downstream, currentProtocolVersion)
 			},
 		},
 		{
@@ -155,5 +169,138 @@ func assertNoDownstreamServerInfo(t *testing.T, wire map[string]json.RawMessage)
 	}
 	if _, ok := meta["kept"]; !ok {
 		t.Fatalf("application metadata was discarded: %s", wire["_meta"])
+	}
+}
+
+func TestOutputSchemaOmissionPreservesCatalog(t *testing.T) {
+	schemas := []any{
+		nil,
+		map[string]any{"type": "object"},
+		map[string]any{"oneOf": []any{map[string]any{"type": "null"}, map[string]any{"type": "object"}}},
+		true,
+		false,
+	}
+	tools := make([]*mcp.Tool, len(schemas))
+	for i, schema := range schemas {
+		tools[i] = &mcp.Tool{
+			Name:         "tool" + strconv.Itoa(i),
+			Meta:         mcp.Meta{"custom": true},
+			InputSchema:  map[string]any{"type": "object"},
+			OutputSchema: schema,
+		}
+	}
+	compiled, err := catalog.Compile(t.Context(), &config.Config{Servers: []config.Server{{Name: "fixture", URL: "https://example.invalid"}}}, projectionDiscoverer{features: &component.Features{ProtocolVersion: currentProtocolVersion, Tools: tools}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools = compiled.Tools()
+	before := string(mustJSON(t, tools))
+	legacy := &mcp.ListToolsRequest{Params: &mcp.ListToolsParams{Meta: mcp.Meta{mcp.MetaKeyProtocolVersion: "2025-11-25"}}}
+	modern := &mcp.ListToolsRequest{Params: &mcp.ListToolsParams{Meta: mcp.Meta{mcp.MetaKeyProtocolVersion: currentProtocolVersion}}}
+	for _, request := range []mcp.Request{legacy, modern} {
+		projected := omitModernToolOutputSchemas(request, tools, compiled)
+		if len(projected) != len(tools) {
+			t.Fatal("projection dropped tools")
+		}
+		for i, tool := range projected {
+			if request == modern {
+				if tool != tools[i] {
+					t.Fatal("modern schema definition was changed")
+				}
+				continue
+			}
+			wire := marshalWireResult(t, tool)
+			if _, present := wire["outputSchema"]; present {
+				t.Fatalf("legacy tool still advertises outputSchema: %s", mustJSON(t, tool))
+			}
+			expected := *tools[i]
+			expected.OutputSchema = nil
+			if !reflect.DeepEqual(tool, &expected) {
+				t.Fatal("projection changed unrelated tool fields")
+			}
+		}
+		if string(mustJSON(t, tools)) != before {
+			t.Fatal("cached catalog was mutated")
+		}
+	}
+}
+
+func TestToolOutputOmissionRequiresExactProtocolPair(t *testing.T) {
+	tests := []struct {
+		name     string
+		upstream string
+		frontend string
+		omit     bool
+	}{
+		{
+			name:     "target pair",
+			upstream: "2026-07-28",
+			frontend: "2025-11-25",
+			omit:     true,
+		},
+		{
+			name:     "legacy upstream",
+			upstream: "2025-11-25",
+			frontend: "2025-11-25",
+		},
+		{
+			name:     "older upstream",
+			upstream: "2025-06-18",
+			frontend: "2025-11-25",
+		},
+		{
+			name:     "future upstream",
+			upstream: "2027-01-01",
+			frontend: "2025-11-25",
+		},
+		{
+			name:     "unknown upstream",
+			frontend: "2025-11-25",
+		},
+		{
+			name:     "modern frontend",
+			upstream: "2026-07-28",
+			frontend: "2026-07-28",
+		},
+		{
+			name:     "other legacy frontend",
+			upstream: "2026-07-28",
+			frontend: "2025-06-18",
+		},
+		{
+			name:     "unknown frontend",
+			upstream: "2026-07-28",
+		},
+		{
+			name:     "future frontend",
+			upstream: "2026-07-28",
+			frontend: "2027-01-01",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tool := &mcp.Tool{Name: "object", InputSchema: map[string]any{"type": "object"}, OutputSchema: map[string]any{"type": "object"}}
+			compiled, err := catalog.Compile(t.Context(), &config.Config{Servers: []config.Server{{Name: "fixture", URL: "https://example.invalid"}}}, projectionDiscoverer{features: &component.Features{ProtocolVersion: test.upstream, Tools: []*mcp.Tool{tool}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := &mcp.ServerRequest[*mcp.CallToolParams]{Params: &mcp.CallToolParams{Meta: mcp.Meta{mcp.MetaKeyProtocolVersion: test.frontend}}}
+			tools := omitModernToolOutputSchemas(request, compiled.Tools(), compiled)
+			if (tools[0].OutputSchema == nil) != test.omit {
+				t.Fatalf("outputSchema = %#v, want omitted=%t", tools[0].OutputSchema, test.omit)
+			}
+			original := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "authored"}}, StructuredContent: map[string]any{"ok": true}}
+			result, err := normalizeCallToolResult(request, original, test.upstream)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.omit {
+				if result.StructuredContent != nil || len(result.Content) != 2 || result.Content[1].(*mcp.TextContent).Text != `{"ok":true}` {
+					t.Fatalf("target pair output was not moved into content: %+v", result)
+				}
+			} else if !reflect.DeepEqual(result.StructuredContent, original.StructuredContent) || !reflect.DeepEqual(result.Content, original.Content) {
+				t.Fatalf("other protocol pair output was changed: %+v", result)
+			}
+		})
 	}
 }

@@ -176,3 +176,41 @@ func TestPromptsOnlyStdioHelperProcess(t *testing.T) {
 	})
 	_ = server.Run(t.Context(), &mcp.StdioTransport{})
 }
+
+func TestDiscoverRecordsNegotiatedProtocolVersion(t *testing.T) {
+	for _, version := range []string{"2025-11-25", "2026-07-28"} {
+		t.Run(version, func(t *testing.T) {
+			factory := NewFactory(Options{LookupEnv: func(string) (string, bool) { return "", false }})
+			t.Cleanup(func() { _ = factory.Close() })
+			features, err := factory.Discover(t.Context(), config.Server{
+				Name:    "versioned",
+				Command: os.Args[0],
+				Args:    []string{"-test.run=TestVersionedStdioHelperProcess"},
+				Env:     map[string]string{"MMMCP_VERSIONED_HELPER": version},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if features.ProtocolVersion != version {
+				t.Fatalf("discovery protocol = %s, want %s", features.ProtocolVersion, version)
+			}
+		})
+	}
+}
+
+func TestVersionedStdioHelperProcess(t *testing.T) {
+	version := os.Getenv("MMMCP_VERSIONED_HELPER")
+	if version == "" {
+		return
+	}
+	server := mcp.NewServer(&mcp.Implementation{Name: "versioned-helper", Version: "test"}, nil)
+	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if method == "server/discover" && version == "2025-11-25" {
+				return nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "legacy server"}
+			}
+			return next(ctx, method, req)
+		}
+	})
+	_ = server.Run(t.Context(), &mcp.StdioTransport{})
+}

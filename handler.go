@@ -34,7 +34,22 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 				}
 			} else {
 				mu.Lock()
-				toolsChanged := previous != nil && previousFingerprint != fingerprint && (previousToolSearch != toolSearch || !reflect.DeepEqual(previous.Tools(), compiled.Tools()))
+				toolsChanged := false
+				if previous != nil && previousFingerprint != fingerprint {
+					// In direct mode, compare definitions after frontend schema omission:
+					// an upstream protocol change can hide or restore output schemas even
+					// when the raw tool definitions are unchanged. Project each snapshot
+					// using its own upstream versions to detect that visible change.
+					previousTools := previous.Tools()
+					if !previousToolSearch {
+						previousTools = omitModernToolOutputSchemas(request, previousTools, previous)
+					}
+					currentTools := compiled.Tools()
+					if !toolSearch {
+						currentTools = omitModernToolOutputSchemas(request, currentTools, compiled)
+					}
+					toolsChanged = previousToolSearch != toolSearch || !reflect.DeepEqual(previousTools, currentTools)
+				}
 				previous, previousFingerprint, previousToolSearch = compiled, fingerprint, toolSearch
 				mu.Unlock()
 				if toolsChanged && method != "tools/list" {
@@ -57,7 +72,7 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 				// Available tools depend on the request's selected configuration.
 				return &mcp.ListToolsResult{
 					CacheScope: "private",
-					Tools:      values,
+					Tools:      omitModernToolOutputSchemas(request, values, compiled),
 					NextCursor: nextCursor,
 				}, nil
 			case "prompts/list":
@@ -146,7 +161,7 @@ func (c *Composite) callTool(ctx context.Context, request mcp.Request, compiled 
 		return nil, unknown("tool", req.Params.Name)
 	}
 	if call.Result != nil {
-		return normalizeCallToolResult(request, call.Result)
+		return normalizeCallToolResult(request, call.Result, "")
 	}
 	route := *call.Route
 	ctx = component.ContextWithToolCall(ctx, route.Tool, call.Arguments)
@@ -167,7 +182,7 @@ func (c *Composite) callTool(ctx context.Context, request mcp.Request, compiled 
 	if err != nil {
 		return nil, err
 	}
-	return normalizeCallToolResult(request, compiled.RewriteCallToolResult(route.Prefix, result))
+	return normalizeCallToolResult(request, compiled.RewriteCallToolResult(route.Prefix, result), route.ProtocolVersion)
 }
 
 func (c *Composite) getPrompt(ctx context.Context, request mcp.Request, compiled *catalog.Catalog, fingerprint string) (mcp.Result, error) {

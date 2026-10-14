@@ -89,14 +89,19 @@ func newCatalog(c *Catalog) (*Catalog, error) {
 	sort.Slice(c.resourceTemplates, func(i, j int) bool {
 		return c.resourceTemplates[i].URITemplate < c.resourceTemplates[j].URITemplate
 	})
+	toolProtocols := make(map[string]string, len(c.toolRoutes))
+	for name, route := range c.toolRoutes {
+		toolProtocols[name] = route.ProtocolVersion
+	}
 	snapshot, err := json.Marshal(struct {
+		ToolProtocols     map[string]string       `json:"toolProtocols"`
 		ToolSearch        bool                    `json:"toolSearch"`
 		Tools             []*mcp.Tool             `json:"tools"`
 		VisibleTools      []*mcp.Tool             `json:"visibleTools"`
 		Prompts           []*mcp.Prompt           `json:"prompts"`
 		Resources         []*mcp.Resource         `json:"resources"`
 		ResourceTemplates []*mcp.ResourceTemplate `json:"resourceTemplates"`
-	}{c.toolSearch, c.tools, c.visibleTools, c.prompts, c.resources, c.resourceTemplates})
+	}{toolProtocols, c.toolSearch, c.tools, c.visibleTools, c.prompts, c.resources, c.resourceTemplates})
 	if err != nil {
 		return nil, fmt.Errorf("catalog snapshot: %w", err)
 	}
