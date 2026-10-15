@@ -143,7 +143,7 @@ func legacyToolContent(content []mcp.Content, structured json.RawMessage) []mcp.
 			}
 		}
 	}
-	return append(slices.Clone(content), &mcp.TextContent{Text: string(structured)})
+	return append(content, &mcp.TextContent{Text: string(structured)})
 }
 
 func decodeJSONValue(data []byte) (any, bool) {
