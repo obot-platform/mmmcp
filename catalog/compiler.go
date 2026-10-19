@@ -2,7 +2,9 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -20,9 +22,12 @@ const (
 
 type discoveryResult struct {
 	features *component.Features
+	pending  bool
 }
 
-func compile(ctx context.Context, cfg *config.Config, discoverer component.Discoverer) (*Catalog, error) {
+// compile discovers cfg. With deferAuthorization, components that return 401 leave
+// a catalog that exposes only the authorization tool.
+func compile(ctx context.Context, cfg *config.Config, discoverer component.Discoverer, deferAuthorization bool) (*Catalog, error) {
 	result := newCompileCatalog(cfg.ToolSearch)
 	prefixes := make([]string, len(cfg.Servers))
 	for i, server := range cfg.Servers {
@@ -36,7 +41,7 @@ func compile(ctx context.Context, cfg *config.Config, discoverer component.Disco
 		prefixes[i] = prefix
 	}
 
-	discovered, err := discoverComponents(ctx, cfg.Servers, prefixes, discoverer)
+	discovered, err := discoverComponents(ctx, cfg.Servers, prefixes, discoverer, deferAuthorization)
 	if err != nil {
 		return nil, err
 	}
@@ -51,6 +56,26 @@ func compile(ctx context.Context, cfg *config.Config, discoverer component.Disco
 		if err := compileComponent(result, templateOwners, server, prefixes[i], discovered[i].features); err != nil {
 			return nil, err
 		}
+	}
+	if cfg.DeferAuthorization {
+		if _, exists := result.toolRoutes[AuthorizationToolName]; exists {
+			return nil, fmt.Errorf("tool name %q is reserved for authorization", AuthorizationToolName)
+		}
+	}
+	var pending []string
+	for i, server := range cfg.Servers {
+		if discovered[i].pending {
+			pending = append(pending, server.Name)
+		}
+	}
+	if len(pending) > 0 {
+		// Ready components stay hidden until every component is authorized.
+		pendingCatalog := newCompileCatalog(false)
+		pendingCatalog.serverInfo = result.serverInfo
+		pendingCatalog.pendingAuthorization = pending
+		pendingCatalog.tools = []*mcp.Tool{authorizationTool()}
+		pendingCatalog.visibleTools = pendingCatalog.tools
+		return newCatalog(pendingCatalog)
 	}
 	compiled, err := newCatalog(result)
 	if err != nil || !cfg.ToolSearch {
@@ -89,7 +114,7 @@ func validateComponent(server config.Server, prefix string, features *component.
 	return compileComponent(newCompileCatalog(false), make(map[string]string), server, prefix, features)
 }
 
-func discoverComponents(ctx context.Context, servers []config.Server, prefixes []string, discoverer component.Discoverer) ([]discoveryResult, error) {
+func discoverComponents(ctx context.Context, servers []config.Server, prefixes []string, discoverer component.Discoverer, deferAuthorization bool) ([]discoveryResult, error) {
 	results := make([]discoveryResult, len(servers))
 	if len(servers) == 0 {
 		return results, nil
@@ -116,6 +141,11 @@ func discoverComponents(ctx context.Context, servers []config.Server, prefixes [
 				nextMu.Unlock()
 
 				features, err := discoverer.Discover(ctx, servers[i])
+				var authErr *component.AuthorizationError
+				if deferAuthorization && errors.As(err, &authErr) && authErr.StatusCode == http.StatusUnauthorized {
+					results[i] = discoveryResult{features: &component.Features{}, pending: true}
+					continue
+				}
 				if err == nil && features == nil {
 					err = fmt.Errorf("component %q returned nil features", servers[i].Name)
 				}

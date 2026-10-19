@@ -120,6 +120,10 @@ func (c *Composite) ResolveToolCall(ctx context.Context, cfg *config.Config, nam
 	if err != nil {
 		return catalog.ResolvedToolCall{}, false, err
 	}
+	// The authorization tool is answered locally, like the frontend does.
+	if cfg.DeferAuthorization && name == catalog.AuthorizationToolName {
+		return catalog.ResolvedToolCall{Result: c.authorizationStatus(ctx, compiled)}, true, nil
+	}
 	return compiled.ResolveToolCall(ctx, name, arguments)
 }
 

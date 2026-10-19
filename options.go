@@ -1,6 +1,7 @@
 package mmmcp
 
 import (
+	"context"
 	"log/slog"
 	nethttp "net/http"
 	"time"
@@ -21,6 +22,9 @@ type Options struct {
 	ForwardClientInfo bool
 	// OAuth supplies a component-specific OAuth handler for downstream HTTP clients.
 	OAuth http.OAuthHandlerProvider
+	// AuthorizationURLs supplies sign-in links for deferred component OAuth.
+	// It runs with the current frontend request context, only while discovery needs authorization.
+	AuthorizationURLs func(context.Context) ([]AuthorizationURL, error)
 	// DSN selects the default event storage. An empty DSN selects SQLite.
 	DSN string
 	// LookupEnv supplies the allow-listed baseline for command components.
@@ -31,4 +35,10 @@ type Options struct {
 	PageSize int
 	// Storage controls SQL connection pools, data location, and event retention.
 	Storage storage.Options
+}
+
+// AuthorizationURL identifies a component sign-in link shown by the authorization tool.
+type AuthorizationURL struct {
+	Message string
+	URL     string
 }

@@ -38,11 +38,17 @@ type frontendBindings struct {
 func (s *configToolSubscriptions) observe(id, method string, server *mcp.Server, compiled *catalog.Catalog, fingerprint string, toolSearch bool) func() {
 	s.mu.Lock()
 	entry := s.configs[id]
-	var notify []*mcp.Server
+	var notify, setup []*mcp.Server
 	if entry != nil {
-		if entry.fingerprint != fingerprint && (entry.toolSearch != toolSearch || !reflect.DeepEqual(entry.catalog.Tools(), compiled.Tools())) {
+		setupDone := setupChanged(entry.catalog, compiled)
+		if (entry.fingerprint != fingerprint || setupDone) && (entry.toolSearch != toolSearch || !reflect.DeepEqual(entry.catalog.Tools(), compiled.Tools())) {
 			for listener := range entry.servers {
 				notify = append(notify, listener)
+			}
+		}
+		if setupDone {
+			for listener := range entry.servers {
+				setup = append(setup, listener)
 			}
 		}
 		entry.catalog, entry.fingerprint, entry.toolSearch = compiled, fingerprint, toolSearch
@@ -74,6 +80,9 @@ func (s *configToolSubscriptions) observe(id, method string, server *mcp.Server,
 	s.mu.Unlock()
 	for _, listener := range notify {
 		notifyFeatureChanged(listener, component.FeatureTools)
+	}
+	for _, listener := range setup {
+		notifySetupChanged(listener)
 	}
 	return cleanup
 }

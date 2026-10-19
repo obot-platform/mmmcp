@@ -61,7 +61,11 @@ func (c *Catalog) RouteReference(ref toolsearch.Reference) (ToolRoute, string, b
 	// Direct-mode catalogs have no search index and do not make generic calls.
 	for _, tool := range c.tools {
 		if tool.Name == ref.Name {
-			route := c.toolRoutes[tool.Name]
+			// Local tools, such as the authorization tool, have no downstream route.
+			route, ok := c.toolRoutes[tool.Name]
+			if !ok {
+				return ToolRoute{}, "", false
+			}
 			return route, toolsearch.Revision(ref, route.Component.Name, route.Tool.Name, tool), true
 		}
 	}

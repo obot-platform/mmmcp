@@ -222,6 +222,19 @@ the notification when the triggering request is `tools/list`.
 Use `Composite.RunStdio(ctx)` to serve stdin/stdout. A configuration attached to
 that context applies to the complete stdio frontend session.
 
+Set `Config.DeferAuthorization` to keep a session connected when a component's
+discovery returns 401. Until every component is authorized, the session exposes
+only `mmmcp_auth_status`, which reports the components still waiting and any links
+from `Options.AuthorizationURLs`. Each request rediscovers with its own credentials,
+so the tools appear on the first request after the user signs in. Pending catalogs
+are never cached, and background refreshes never replace a ready catalog with a
+pending one. A ready catalog is shared by every caller with the same configuration,
+so once one user signs in, users who have not see its tools and get 401 challenges
+from tool calls instead of `mmmcp_auth_status`. When component credentials differ
+per user, attach each user's configuration with `ContextWithConfig` and make it
+differ per user, for example with a static header that identifies the user, so each
+user gets their own catalog.
+
 ## Storage
 
 Set storage with `Options.DSN` (or `-dsn`/`MMMCP_DSN` in the CLI). An empty DSN

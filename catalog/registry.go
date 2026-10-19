@@ -81,14 +81,25 @@ func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, strin
 	entry, created := r.entryForConfig(fingerprint, cfg)
 	if !created {
 		compiled, err := r.waitForCatalog(ctx, fingerprint, entry, cfg.ToolSearch)
+		if err == nil && len(compiled.pendingAuthorization) > 0 {
+			// That compile used another request's credentials; discover once with this
+			// one's. Re-entering the cache would retry once per concurrent pending request.
+			compiled, err = compile(ctx, cfg, r.discoverer, cfg.DeferAuthorization)
+			if err == nil {
+				r.publish(fingerprint, cfg, compiled)
+			}
+		}
 		return compiled, fingerprint, err
 	}
 
-	compiled, compileErr := compile(ctx, cfg, r.discoverer)
+	compiled, compileErr := compile(ctx, cfg, r.discoverer, cfg.DeferAuthorization)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	entry.catalog, entry.err = compiled, compileErr
-	if compileErr != nil {
+	// Like failures, pending catalogs are not cached: the next request rediscovers
+	// with its own credentials. A ready catalog is shared by every caller with this
+	// configuration, so users who have not signed in see its tools and get 401s.
+	if compileErr != nil || len(compiled.pendingAuthorization) > 0 {
 		delete(r.entries, fingerprint)
 	} else {
 		if !r.closed {
@@ -97,6 +108,23 @@ func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, strin
 	}
 	close(entry.ready)
 	return compiled, fingerprint, compileErr
+}
+
+// publish caches a ready catalog a waiter discovered for itself, the same as a first
+// compile would, unless another entry has taken its place since.
+func (r *Registry) publish(fingerprint string, cfg *config.Config, compiled *Catalog) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return
+	}
+	compiled.StartSearchIndex(r.ctx)
+	if len(compiled.pendingAuthorization) > 0 || r.entries[fingerprint] != nil {
+		return
+	}
+	ready := make(chan struct{})
+	close(ready)
+	r.entries[fingerprint] = &registryEntry{ready: ready, catalog: compiled, config: cfg}
 }
 
 // entryForConfig returns the existing entry or creates one for the caller to compile.
@@ -202,7 +230,8 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 			}
 		}
 	}
-	compiled, err := compile(ctx, cfg, r.discoverer)
+	// Refreshes never defer: a 401 keeps the installed snapshot.
+	compiled, err := compile(ctx, cfg, r.discoverer, false)
 	// Complete the search refresh on the same entry that Get is waiting on.
 	// Keep it stale after failure or while a notification refresh is pending.
 	if cfg.ToolSearch && current != nil {
@@ -294,7 +323,7 @@ func (r *Registry) runRefresh(fingerprint string) {
 	entry.callbacks = nil
 	r.mu.Unlock()
 
-	compiled, err := compile(r.ctx, cfg, r.discoverer)
+	compiled, err := compile(r.ctx, cfg, r.discoverer, false)
 
 	r.mu.Lock()
 	if r.entries[fingerprint] != entry {

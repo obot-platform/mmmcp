@@ -144,7 +144,7 @@ func BenchmarkSearchIndexRetainedMemory(b *testing.B) {
 						ToolSearch: true,
 						Servers:    []config.Server{{Name: "fixture", URL: "https://example.invalid"}},
 					}
-					compiled, err := compile(b.Context(), cfg, memoryDiscoverer{})
+					compiled, err := compile(b.Context(), cfg, memoryDiscoverer{}, false)
 					if err != nil {
 						b.Fatal(err)
 					}

@@ -9,10 +9,14 @@ type Config struct {
 	Name    string
 	Version string
 	// ToolSearch exposes only search and generic call tools when enabled.
-	ToolSearch  bool
-	Listen      string
-	IdleTimeout time.Duration
-	Servers     []Server
+	ToolSearch bool
+	// DeferAuthorization keeps the frontend connected when component discovery returns 401.
+	// Clients complete authorization out of band, then call mmmcp_auth_status.
+	// This option is programmatic only; configuration files retain normal OAuth behavior.
+	DeferAuthorization bool
+	Listen             string
+	IdleTimeout        time.Duration
+	Servers            []Server
 }
 
 // Server describes one component MCP server.

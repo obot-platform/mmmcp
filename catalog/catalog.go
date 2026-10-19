@@ -14,6 +14,8 @@ import (
 
 // Catalog is an immutable, sorted composite feature snapshot.
 type Catalog struct {
+	pendingAuthorization []string
+
 	id                string
 	serverInfo        *mcp.Implementation
 	tools             []*mcp.Tool

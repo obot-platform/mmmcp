@@ -146,7 +146,10 @@ func TestCloseStopsPersistentFrontend(t *testing.T) {
 		t.Fatal("Composite.Close did not stop persistent frontend")
 	}
 	select {
-	case <-runDone:
+	case err := <-runDone:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("RunStdio error = %v", err)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("persistent frontend did not return")
 	}

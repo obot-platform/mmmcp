@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/obot-platform/mmmcp/catalog"
 	"github.com/obot-platform/mmmcp/component"
 	"github.com/obot-platform/mmmcp/config"
 )
@@ -20,6 +21,9 @@ type configSelection struct {
 	useDefault bool
 	dsn        string
 	dsnSet     bool
+	// pending is this request's uncached deferred-authorization catalog.
+	pending            *catalog.Catalog
+	pendingFingerprint string
 }
 
 type requestConfigRegistry struct {
@@ -43,6 +47,15 @@ func (r *requestConfigRegistry) get(token string) (configSelection, bool) {
 	selection, ok := r.entries[token]
 	r.mu.RUnlock()
 	return selection, ok
+}
+
+func (r *requestConfigRegistry) setPending(token string, compiled *catalog.Catalog, fingerprint string) {
+	r.mu.Lock()
+	if selection, ok := r.entries[token]; ok {
+		selection.pending, selection.pendingFingerprint = compiled, fingerprint
+		r.entries[token] = selection
+	}
+	r.mu.Unlock()
 }
 
 func (r *requestConfigRegistry) delete(token string) {

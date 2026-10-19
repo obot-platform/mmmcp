@@ -23,11 +23,12 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 			previousToolSearch  bool
 		)
 		handler := func(ctx context.Context, method string, request mcp.Request) (mcp.Result, error) {
+			cfg := c.configForRequest(ctx, request)
 			compiled, fingerprint, err := c.catalogForRequest(ctx, request)
 			if err != nil {
 				return nil, err
 			}
-			toolSearch := c.configForRequest(ctx, request).ToolSearch
+			toolSearch := cfg.ToolSearch
 			if id, ok := ConfigIDFromContext(ctx); ok && request.GetSession().ID() == "" {
 				if cleanup := c.toolSubscriptions.observe(id, method, server, compiled, fingerprint, toolSearch); cleanup != nil {
 					defer cleanup()
@@ -35,7 +36,8 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 			} else {
 				mu.Lock()
 				toolsChanged := false
-				if previous != nil && previousFingerprint != fingerprint {
+				setup := previous != nil && setupChanged(previous, compiled)
+				if previous != nil && (previousFingerprint != fingerprint || setup) {
 					// In direct mode, compare definitions after frontend schema omission:
 					// an upstream protocol change can hide or restore output schemas even
 					// when the raw tool definitions are unchanged. Project each snapshot
@@ -54,6 +56,9 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 				mu.Unlock()
 				if toolsChanged && method != "tools/list" {
 					notifyFeatureChanged(server, component.FeatureTools)
+				}
+				if setup {
+					notifySetupChanged(server)
 				}
 			}
 			switch method {
@@ -115,6 +120,9 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 				}
 				return &mcp.ListResourceTemplatesResult{CacheScope: "public", ResourceTemplates: values, NextCursor: nextCursor}, nil
 			case "tools/call":
+				if req, ok := request.(*mcp.CallToolRequest); ok && cfg.DeferAuthorization && req.Params != nil && req.Params.Name == catalog.AuthorizationToolName {
+					return normalizeCallToolResult(request, c.authorizationStatus(ctx, compiled), "")
+				}
 				return c.callTool(ctx, request, compiled, fingerprint)
 			case "prompts/get":
 				return c.getPrompt(ctx, request, compiled, fingerprint)
@@ -132,7 +140,26 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 	}
 }
 
+// setupChanged reports deferred authorization completing, which keeps the configuration fingerprint.
+func setupChanged(previous, current *catalog.Catalog) bool {
+	return len(previous.PendingAuthorization()) > 0 != (len(current.PendingAuthorization()) > 0)
+}
+
+// notifySetupChanged reports the prompts and resources that a pending catalog hides.
+// Tool changes are compared separately; a tools/list request must not suppress these.
+func notifySetupChanged(server *mcp.Server) {
+	notifyFeatureChanged(server, component.FeaturePrompts)
+	notifyFeatureChanged(server, component.FeatureResources)
+}
+
+// catalogForRequest reuses a pending catalog this HTTP request already discovered;
+// pending catalogs are not cached, so another Get would rediscover every component.
 func (c *Composite) catalogForRequest(ctx context.Context, request mcp.Request) (*catalog.Catalog, string, error) {
+	if extra := request.GetExtra(); extra != nil && extra.Header != nil {
+		if selection, ok := c.requestConfigs.get(extra.Header.Get(privateConfigHeader)); ok && selection.pending != nil {
+			return selection.pending, selection.pendingFingerprint, nil
+		}
+	}
 	return c.registry.Get(ctx, c.configForRequest(ctx, request))
 }
 
