@@ -18,6 +18,7 @@ const (
 )
 
 var (
+
 	// ErrCatalogUnavailable means a search-enabled catalog could not refresh.
 	ErrCatalogUnavailable = fmt.Errorf("CATALOG_UNAVAILABLE: tool catalog refresh failed; retry")
 )
@@ -71,6 +72,29 @@ func Fingerprint(cfg *config.Config) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// Cached returns a completed, current catalog without starting discovery or
+// waiting for compilation. Authorization failures and pending catalogs stay request-local.
+func (r *Registry) Cached(cfg *config.Config) (*Catalog, bool) {
+	fingerprint, err := Fingerprint(cfg)
+	if err != nil {
+		return nil, false
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry := r.entries[fingerprint]
+	if r.closed || entry == nil || entry.stale || entry.err != nil {
+		return nil, false
+	}
+
+	select {
+	case <-entry.ready:
+		return entry.catalog, entry.catalog != nil && len(entry.catalog.pendingAuthorization) == 0
+	default:
+		return nil, false
+	}
+}
+
 // Get returns the cached catalog for cfg, compiling it once on first use.
 func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, string, error) {
 	fingerprint, err := Fingerprint(cfg)
@@ -81,7 +105,7 @@ func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, strin
 	entry, created := r.entryForConfig(fingerprint, cfg)
 	if !created {
 		compiled, err := r.waitForCatalog(ctx, fingerprint, entry, cfg.ToolSearch)
-		if err == nil && len(compiled.pendingAuthorization) > 0 {
+		if len(component.AuthorizationErrors(err)) > 0 || err == nil && len(compiled.pendingAuthorization) > 0 {
 			// That compile used another request's credentials; discover once with this
 			// one's. Re-entering the cache would retry once per concurrent pending request.
 			compiled, err = compile(ctx, cfg, r.discoverer, cfg.DeferAuthorization)
@@ -89,6 +113,7 @@ func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, strin
 				r.publish(fingerprint, cfg, compiled)
 			}
 		}
+
 		return compiled, fingerprint, err
 	}
 
@@ -96,6 +121,7 @@ func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, strin
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	entry.catalog, entry.err = compiled, compileErr
+
 	// Like failures, pending catalogs are not cached: the next request rediscovers
 	// with its own credentials. A ready catalog is shared by every caller with this
 	// configuration, so users who have not signed in see its tools and get 401s.
@@ -106,7 +132,9 @@ func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, strin
 			compiled.StartSearchIndex(r.ctx)
 		}
 	}
+
 	close(entry.ready)
+
 	return compiled, fingerprint, compileErr
 }
 
@@ -190,6 +218,7 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 		return nil, "", err
 	}
 	var current *registryEntry
+
 	// Search catalogs must be marked stale before discovery so Get waits for this
 	// refresh. Wait for any initial compile or earlier refresh to finish first.
 	if cfg.ToolSearch {
@@ -230,8 +259,10 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 			}
 		}
 	}
+
 	// Refreshes never defer: a 401 keeps the installed snapshot.
 	compiled, err := compile(ctx, cfg, r.discoverer, false)
+
 	// Complete the search refresh on the same entry that Get is waiting on.
 	// Keep it stale after failure or while a notification refresh is pending.
 	if cfg.ToolSearch && current != nil {

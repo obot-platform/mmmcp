@@ -116,14 +116,18 @@ func (c *Composite) ResolveToolCall(ctx context.Context, cfg *config.Config, nam
 	if c == nil || c.closed.Load() {
 		return catalog.ResolvedToolCall{}, false, errors.New("mmmcp: composite server is closed")
 	}
+
+	cfg = c.requestCatalogConfig(cfg, "tools/call", name, arguments)
 	compiled, _, err := c.registry.Get(ctx, cfg)
 	if err != nil {
 		return catalog.ResolvedToolCall{}, false, err
 	}
+
 	// The authorization tool is answered locally, like the frontend does.
 	if cfg.DeferAuthorization && name == catalog.AuthorizationToolName {
 		return catalog.ResolvedToolCall{Result: c.authorizationStatus(ctx, compiled)}, true, nil
 	}
+
 	return compiled.ResolveToolCall(ctx, name, arguments)
 }
 

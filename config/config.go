@@ -6,11 +6,15 @@ import (
 
 // Config is a complete composite server configuration.
 type Config struct {
-	Name    string
-	Version string
+	// RequestScopedDiscovery keeps protected feature families isolated in dynamic gateways.
+	RequestScopedDiscovery bool
+	Name                   string
+	Version                string
+
 	// ToolSearch exposes only search and generic call tools when enabled.
 	ToolSearch bool
-	// DeferAuthorization keeps the frontend connected when component discovery returns 401.
+
+	// DeferAuthorization keeps the frontend connected when discovery requires OAuth.
 	// Clients complete authorization out of band, then call mmmcp_auth_status.
 	// This option is programmatic only; configuration files retain normal OAuth behavior.
 	DeferAuthorization bool
@@ -21,6 +25,9 @@ type Config struct {
 
 // Server describes one component MCP server.
 type Server struct {
+	// DiscoveryMethod limits list operations to a feature family; empty discovers all.
+	DiscoveryMethod string
+
 	// DiscoveryRevision participates in the complete configuration fingerprint only.
 	DiscoveryRevision  string
 	Name               string
@@ -90,6 +97,7 @@ type configDTO struct {
 }
 
 type serverDTO struct {
+	DiscoveryMethod    string
 	DiscoveryRevision  string                        `yaml:"discoveryRevision"`
 	Name               string                        `yaml:"name"`
 	Prefix             string                        `yaml:"prefix"`

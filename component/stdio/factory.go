@@ -57,7 +57,7 @@ func (f *Factory) open(ctx context.Context, server config.Server, callbacks comp
 	return runtime, nil
 }
 
-// Discover starts an isolated process and exhausts all feature lists.
+// Discover starts an isolated process and exhausts the selected feature lists.
 func (f *Factory) Discover(ctx context.Context, server config.Server) (*component.Features, error) {
 	ctx, cancel := withTimeout(ctx, server.Timeout)
 	defer cancel()
@@ -65,6 +65,7 @@ func (f *Factory) Discover(ctx context.Context, server config.Server) (*componen
 	if err != nil {
 		return nil, err
 	}
+
 	defer runtime.Close()
 	features := new(component.Features)
 	var capabilities *mcp.ServerCapabilities
@@ -78,58 +79,72 @@ func (f *Factory) Discover(ctx context.Context, server config.Server) (*componen
 			}
 		}
 	}
+
 	// Only list the features the component advertises. A component that omits
 	// a capability may fail its list method with an error other than
 	// method-not-found.
 	if capabilities == nil {
 		return features, nil
 	}
-	if capabilities.Tools != nil {
+
+	if capabilities.Tools != nil && (server.DiscoveryMethod == "" || server.DiscoveryMethod == "tools") && !server.DisableTools {
 		if err := paginate(server.Name, "tools/list", func(cursor string) (string, error) {
 			result, err := runtime.session.ListTools(ctx, &mcp.ListToolsParams{Cursor: cursor})
 			if err != nil {
 				return "", err
 			}
+
 			features.Tools = append(features.Tools, result.Tools...)
+
 			return result.NextCursor, nil
 		}); err != nil {
 			return nil, err
 		}
 	}
-	if capabilities.Prompts != nil {
+
+	if capabilities.Prompts != nil && (server.DiscoveryMethod == "" || server.DiscoveryMethod == "prompts") {
 		if err := paginate(server.Name, "prompts/list", func(cursor string) (string, error) {
 			result, err := runtime.session.ListPrompts(ctx, &mcp.ListPromptsParams{Cursor: cursor})
 			if err != nil {
 				return "", err
 			}
+
 			features.Prompts = append(features.Prompts, result.Prompts...)
+
 			return result.NextCursor, nil
 		}); err != nil {
 			return nil, err
 		}
 	}
-	if capabilities.Resources != nil {
+
+	if capabilities.Resources != nil && (server.DiscoveryMethod == "" || server.DiscoveryMethod == "resources") {
 		if err := paginate(server.Name, "resources/list", func(cursor string) (string, error) {
 			result, err := runtime.session.ListResources(ctx, &mcp.ListResourcesParams{Cursor: cursor})
 			if err != nil {
 				return "", err
 			}
+
 			features.Resources = append(features.Resources, result.Resources...)
+
 			return result.NextCursor, nil
 		}); err != nil {
 			return nil, err
 		}
+
 		if err := paginate(server.Name, "resources/templates/list", func(cursor string) (string, error) {
 			result, err := runtime.session.ListResourceTemplates(ctx, &mcp.ListResourceTemplatesParams{Cursor: cursor})
 			if err != nil {
 				return "", err
 			}
+
 			features.ResourceTemplates = append(features.ResourceTemplates, result.ResourceTemplates...)
+
 			return result.NextCursor, nil
 		}); err != nil {
 			return nil, err
 		}
 	}
+
 	return features, nil
 }
 

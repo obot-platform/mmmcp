@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -23,10 +22,11 @@ const (
 type discoveryResult struct {
 	features *component.Features
 	pending  bool
+	err      error
 }
 
-// compile discovers cfg. With deferAuthorization, components that return 401 leave
-// a catalog that exposes only the authorization tool.
+// compile discovers cfg. With deferAuthorization, qualifying OAuth challenges
+// leave a catalog that exposes only the authorization tool.
 func compile(ctx context.Context, cfg *config.Config, discoverer component.Discoverer, deferAuthorization bool) (*Catalog, error) {
 	result := newCompileCatalog(cfg.ToolSearch)
 	prefixes := make([]string, len(cfg.Servers))
@@ -119,6 +119,7 @@ func discoverComponents(ctx context.Context, servers []config.Server, prefixes [
 	if len(servers) == 0 {
 		return results, nil
 	}
+
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
@@ -128,43 +129,77 @@ func discoverComponents(ctx context.Context, servers []config.Server, prefixes [
 		workers sync.WaitGroup
 		next    int
 	)
+
 	for range workerCount {
 		workers.Go(func() {
 			for {
 				nextMu.Lock()
 				if ctx.Err() != nil || next >= len(servers) {
 					nextMu.Unlock()
+
 					return
 				}
+
 				i := next
 				next++
 				nextMu.Unlock()
 
 				features, err := discoverer.Discover(ctx, servers[i])
-				var authErr *component.AuthorizationError
-				if deferAuthorization && errors.As(err, &authErr) && authErr.StatusCode == http.StatusUnauthorized {
-					results[i] = discoveryResult{features: &component.Features{}, pending: true}
+				if challenges := component.AuthorizationErrors(err); len(challenges) > 0 {
+					captured := make([]error, 0, len(challenges))
+
+					for _, challenge := range challenges {
+						clone := *challenge
+						clone.Component = servers[i].Name
+						clone.URL = servers[i].URL
+						captured = append(captured, &clone)
+					}
+
+					results[i] = discoveryResult{
+						features: &component.Features{},
+						pending:  true,
+					}
+					if !deferAuthorization {
+						results[i].err = errors.Join(captured...)
+					}
+
+					// Authorization is request-local; finish every sibling, including queued workers.
 					continue
 				}
+
 				if err == nil && features == nil {
 					err = fmt.Errorf("component %q returned nil features", servers[i].Name)
 				}
+
 				if err == nil {
 					err = validateComponent(servers[i], prefixes[i], features)
 				}
+
 				if err != nil {
 					cancel(err)
+
 					return
 				}
+
 				results[i].features = features
 			}
 		})
 	}
+
 	workers.Wait()
 	if err := context.Cause(ctx); err != nil {
 		return nil, err
 	}
-	return results, nil
+
+	var errs []error
+
+	for _, result := range results {
+		if result.err != nil {
+			errs = append(errs, result.err)
+		}
+	}
+
+	return results, errors.Join(errs...)
 }
 
 func compileTools(c *Catalog, server config.Server, prefix string, discovered []*mcp.Tool, protocolVersion string) error {

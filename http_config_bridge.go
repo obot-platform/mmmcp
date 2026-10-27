@@ -1,8 +1,11 @@
 package mmmcp
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
+	"io"
 	"net/http"
 	"sync"
 
@@ -21,6 +24,7 @@ type configSelection struct {
 	useDefault bool
 	dsn        string
 	dsnSet     bool
+
 	// pending is this request's uncached deferred-authorization catalog.
 	pending            *catalog.Catalog
 	pendingFingerprint string
@@ -69,16 +73,42 @@ func (c *Composite) configBridge(next http.Handler) http.Handler {
 		r.Header.Del(privateConfigHeader)
 		if r.Method != http.MethodPost {
 			next.ServeHTTP(w, r)
+
 			return
 		}
+
 		selection := configSelection{useDefault: true}
 		if cfg, ok := ConfigFromContext(r.Context()); ok {
 			selection = configSelection{config: cfg}
 		}
+
+		cfg := effectiveConfig(r.Context(), c.defaultConfig)
+		var message struct {
+			Method string `json:"method"`
+			Params struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			} `json:"params"`
+		}
+		if r.Body != nil {
+			body, err := io.ReadAll(r.Body)
+			_ = r.Body.Close()
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			if err == nil && json.Unmarshal(body, &message) == nil {
+				cfg = c.requestCatalogConfig(cfg, message.Method, message.Params.Name, message.Params.Arguments)
+			}
+		}
+
+		if cfg.RequestScopedDiscovery {
+			selection.config, selection.useDefault = cfg, false
+		}
+
+		r = r.WithContext(ContextWithConfig(r.Context(), cfg))
 		if dsn, ok := DSNFromContext(r.Context()); ok {
 			selection.dsn = dsn
 			selection.dsnSet = true
 		}
+
 		token := c.requestConfigs.put(selection)
 		defer c.requestConfigs.delete(token)
 		r.Header.Set(privateConfigHeader, token)

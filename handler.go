@@ -74,6 +74,7 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 				if err != nil {
 					return nil, err
 				}
+
 				// Available tools depend on the request's selected configuration.
 				return &mcp.ListToolsResult{
 					CacheScope: "private",
@@ -160,7 +161,13 @@ func (c *Composite) catalogForRequest(ctx context.Context, request mcp.Request) 
 			return selection.pending, selection.pendingFingerprint, nil
 		}
 	}
-	return c.registry.Get(ctx, c.configForRequest(ctx, request))
+
+	cfg := c.configForRequest(ctx, request)
+	if call, ok := request.(*mcp.CallToolRequest); ok && call.Params != nil {
+		cfg = c.requestCatalogConfig(cfg, "tools/call", call.Params.Name, call.Params.Arguments)
+	}
+
+	return c.registry.Get(ctx, cfg)
 }
 
 func (c *Composite) configForRequest(ctx context.Context, request mcp.Request) *config.Config {
