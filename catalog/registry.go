@@ -125,11 +125,14 @@ func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, strin
 	// Like failures, pending catalogs are not cached: the next request rediscovers
 	// with its own credentials. A ready catalog is shared by every caller with this
 	// configuration, so users who have not signed in see its tools and get 401s.
-	if compileErr != nil || len(compiled.pendingAuthorization) > 0 {
-		delete(r.entries, fingerprint)
-	} else {
-		if !r.closed {
-			compiled.StartSearchIndex(r.ctx)
+	// An invalidated in-flight compile must not evict or publish over its replacement.
+	if r.entries[fingerprint] == entry {
+		if compileErr != nil || len(compiled.pendingAuthorization) > 0 {
+			delete(r.entries, fingerprint)
+		} else {
+			if !r.closed {
+				compiled.StartSearchIndex(r.ctx)
+			}
 		}
 	}
 
@@ -306,6 +309,38 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 		old.catalog.StopSearchIndex()
 	}
 	return compiled, fingerprint, nil
+}
+
+// InvalidateComponent drops all discovery views containing a component. Rediscovery
+// happens on the next request with that request's credentials, not in a background probe.
+func (r *Registry) InvalidateComponent(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for fingerprint, entry := range r.entries {
+		if entry.config == nil {
+			continue
+		}
+
+		for _, server := range entry.config.Servers {
+			if server.Name != name {
+				continue
+			}
+
+			delete(r.entries, fingerprint)
+			entry.catalog.StopSearchIndex()
+			if entry.timer != nil {
+				entry.timer.Stop()
+			}
+
+			if entry.refreshDone != nil {
+				close(entry.refreshDone)
+				entry.refreshDone = nil
+			}
+
+			break
+		}
+	}
 }
 
 // RequestRefresh debounces a full rediscovery for fingerprint. A failed

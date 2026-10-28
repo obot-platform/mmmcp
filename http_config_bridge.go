@@ -20,10 +20,12 @@ const (
 )
 
 type configSelection struct {
-	config     *config.Config
-	useDefault bool
-	dsn        string
-	dsnSet     bool
+	// runtimeConfig retains the full configuration before request-local discovery selection.
+	runtimeConfig *config.Config
+	config        *config.Config
+	useDefault    bool
+	dsn           string
+	dsnSet        bool
 
 	// pending is this request's uncached deferred-authorization catalog.
 	pending            *catalog.Catalog
@@ -83,6 +85,7 @@ func (c *Composite) configBridge(next http.Handler) http.Handler {
 		}
 
 		cfg := effectiveConfig(r.Context(), c.defaultConfig)
+		selection.runtimeConfig = cfg
 		var message struct {
 			Method string `json:"method"`
 			Params struct {

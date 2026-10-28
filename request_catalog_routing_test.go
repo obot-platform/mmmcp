@@ -83,6 +83,11 @@ func TestOverlappingPrefixesRouteExactTool(t *testing.T) {
 							Prefix: "a__b",
 							URL:    secondProxy.URL,
 						},
+						{
+							Name:   "third",
+							Prefix: "c",
+							URL:    first.URL,
+						},
 					},
 				}
 				request := func(method string, params map[string]any) json.RawMessage {

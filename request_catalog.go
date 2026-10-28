@@ -20,6 +20,9 @@ func (c *Composite) requestCatalogConfig(cfg *config.Config, method, name string
 	clone := *cfg
 	clone.Servers = slices.Clone(cfg.Servers)
 	family, _, _ := strings.Cut(method, "/")
+	if method == subscriptionsListenMethod {
+		family = "tools"
+	}
 
 	switch family {
 	case "tools", "prompts", "resources":
@@ -83,7 +86,7 @@ func (c *Composite) requestCatalogConfig(cfg *config.Config, method, name string
 	if c.registry != nil {
 		for _, cachedConfig := range []*config.Config{&clone, &selected} {
 			if compiled, ok := c.registry.Cached(cachedConfig); ok {
-				if route, ok := compiled.RouteTool(name); ok {
+				if route, _, ok := compiled.RouteReference(toolsearch.Reference{Name: name}); ok {
 					server := route.Component
 					server.Prefix = route.Prefix
 					selected.Servers = []config.Server{server}

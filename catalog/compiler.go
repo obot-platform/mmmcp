@@ -104,10 +104,27 @@ func compileComponent(result *Catalog, templateOwners map[string]string, server 
 	if err := compilePrompts(result, server, prefix, features.Prompts); err != nil {
 		return err
 	}
-	if err := compileResources(result, server, prefix, features.Resources); err != nil {
+	resources, templates := features.Resources, features.ResourceTemplates
+	if server.DiscoveryMethod != "" && server.DiscoveryMethod != "resources" {
+		// Tool and prompt results can contain resource links. Their configured URI
+		// mappings do not require fetching the upstream resource inventory.
+		for _, override := range server.Resources {
+			if override.Enabled {
+				resources = append(resources, &mcp.Resource{URI: override.URI})
+			}
+		}
+
+		for _, override := range server.ResourceTemplates {
+			if override.Enabled {
+				templates = append(templates, &mcp.ResourceTemplate{URITemplate: override.URITemplate})
+			}
+		}
+	}
+
+	if err := compileResources(result, server, prefix, resources); err != nil {
 		return err
 	}
-	return compileTemplates(result, templateOwners, server, prefix, features.ResourceTemplates)
+	return compileTemplates(result, templateOwners, server, prefix, templates)
 }
 
 func validateComponent(server config.Server, prefix string, features *component.Features) error {

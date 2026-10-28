@@ -162,6 +162,15 @@ func (c *Composite) callbacksForComponent(frontend *mcp.ServerSession, cfg *conf
 		}
 	}
 	callbacks.ListChanged = func(_ context.Context, family component.FeatureFamily) {
+		if cfg.RequestScopedDiscovery {
+			c.registry.InvalidateComponent(componentName)
+			for _, server := range c.bindings.matching(fingerprint, componentName) {
+				notifyFeatureChanged(server, family)
+			}
+
+			return
+		}
+
 		c.registry.RequestRefresh(fingerprint, func(success bool) {
 			if fingerprint == c.defaultCatalogFingerprint {
 				c.catalogDegraded.Store(!success)
@@ -175,7 +184,8 @@ func (c *Composite) callbacksForComponent(frontend *mcp.ServerSession, cfg *conf
 		})
 	}
 	callbacks.ResourceUpdate = func(ctx context.Context, uri string) {
-		compiled, _, err := c.registry.Get(ctx, cfg)
+		resourceConfig := c.requestCatalogConfig(cfg, "resources/list", "", nil)
+		compiled, _, err := c.registry.Get(ctx, resourceConfig)
 		if err != nil {
 			return
 		}
