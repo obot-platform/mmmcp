@@ -126,14 +126,13 @@ func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, strin
 	// with its own credentials. A ready catalog is shared by every caller with this
 	// configuration, so users who have not signed in see its tools and get 401s.
 	// An invalidated in-flight compile must not evict or publish over its replacement.
-	if r.entries[fingerprint] == entry {
-		if compileErr != nil || len(compiled.pendingAuthorization) > 0 {
-			delete(r.entries, fingerprint)
-		} else {
-			if !r.closed {
-				compiled.StartSearchIndex(r.ctx)
-			}
-		}
+	if r.entries[fingerprint] == entry && (compileErr != nil || len(compiled.pendingAuthorization) > 0) {
+		delete(r.entries, fingerprint)
+	}
+
+	// Callers still receive an invalidated successful compile, so its index must be ready too.
+	if compileErr == nil && !r.closed {
+		compiled.StartSearchIndex(r.ctx)
 	}
 
 	close(entry.ready)

@@ -17,6 +17,17 @@ import (
 )
 
 func TestDeferredAuthorizationKeepsSessionConnected(t *testing.T) {
+	t.Run("full", func(t *testing.T) {
+		testDeferredAuthorizationKeepsSessionConnected(t, false)
+	})
+	t.Run("scoped", func(t *testing.T) {
+		testDeferredAuthorizationKeepsSessionConnected(t, true)
+	})
+}
+
+func testDeferredAuthorizationKeepsSessionConnected(t *testing.T, scoped bool) {
+	t.Helper()
+
 	for _, protocol := range []string{"2025-11-25", "2026-07-28"} {
 		for _, search := range []bool{false, true} {
 			name := protocol
@@ -37,7 +48,15 @@ func TestDeferredAuthorizationKeepsSessionConnected(t *testing.T) {
 					}
 					proxy.ServeHTTP(w, r)
 				}))
-				cfg := &config.Config{DeferAuthorization: true, ToolSearch: search, Servers: []config.Server{{Name: "fixture", URL: upstream.URL}}}
+				cfg := &config.Config{
+					DeferAuthorization:     true,
+					ToolSearch:             search,
+					RequestScopedDiscovery: scoped,
+					Servers: []config.Server{{
+						Name: "fixture",
+						URL:  upstream.URL,
+					}},
+				}
 				composite, err := mmmcp.New(t.Context(), cfg, mmmcp.Options{
 					AuthorizationURLs: func(context.Context) ([]mmmcp.AuthorizationURL, error) {
 						return []mmmcp.AuthorizationURL{{Message: "Connect fixture", URL: "https://example.com/authorize?state=a%2Bb"}}, nil

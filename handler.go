@@ -31,7 +31,10 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 			toolSearch := cfg.ToolSearch
 
 			// A partial catalog does not describe additions or removals in the full tool list.
-			if !cfg.RequestScopedDiscovery || method == "tools/list" || method == subscriptionsListenMethod {
+			// Deferred calls retain all components so authorization completion can notify clients.
+			fullTools := !cfg.RequestScopedDiscovery || method == "tools/list" || method == subscriptionsListenMethod ||
+				cfg.DeferAuthorization && method == "tools/call"
+			if fullTools {
 				if id, ok := ConfigIDFromContext(ctx); ok && request.GetSession().ID() == "" {
 					if cleanup := c.toolSubscriptions.observe(id, method, server, compiled, fingerprint, toolSearch); cleanup != nil {
 						defer cleanup()
