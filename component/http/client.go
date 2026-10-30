@@ -55,7 +55,7 @@ func NewFactory(opts FactoryOptions) *Factory {
 	return &Factory{HTTPClient: opts.HTTPClient, OAuth: opts.OAuth, ClientInfo: opts.ClientInfo}
 }
 
-// Discover connects to a component and exhausts every feature list.
+// Discover connects to a component and exhausts the selected advertised feature lists.
 func (f *Factory) Discover(ctx context.Context, server config.Server) (*component.Features, error) {
 	ctx, cancel := withTimeout(ctx, server.Timeout)
 	defer cancel()
@@ -65,6 +65,7 @@ func (f *Factory) Discover(ctx context.Context, server config.Server) (*componen
 	if err != nil {
 		return nil, fmt.Errorf("component %q discovery: %w", server.Name, err)
 	}
+
 	defer session.Close()
 
 	features := new(component.Features)
@@ -79,58 +80,72 @@ func (f *Factory) Discover(ctx context.Context, server config.Server) (*componen
 			}
 		}
 	}
+
 	// Only list the features the component advertises. A component that omits
 	// a capability may fail its list method with an error other than
 	// method-not-found.
 	if capabilities == nil {
 		return features, nil
 	}
-	if capabilities.Tools != nil {
+
+	if capabilities.Tools != nil && (server.DiscoveryMethod == "" || server.DiscoveryMethod == "tools") && !server.DisableTools {
 		if err := paginate(server.Name, "tools/list", func(cursor string) (string, error) {
 			result, err := session.ListTools(ctx, &mcp.ListToolsParams{Cursor: cursor})
 			if err != nil {
 				return "", err
 			}
+
 			features.Tools = append(features.Tools, result.Tools...)
+
 			return result.NextCursor, nil
 		}); err != nil {
 			return nil, err
 		}
 	}
-	if capabilities.Prompts != nil {
+
+	if capabilities.Prompts != nil && (server.DiscoveryMethod == "" || server.DiscoveryMethod == "prompts") {
 		if err := paginate(server.Name, "prompts/list", func(cursor string) (string, error) {
 			result, err := session.ListPrompts(ctx, &mcp.ListPromptsParams{Cursor: cursor})
 			if err != nil {
 				return "", err
 			}
+
 			features.Prompts = append(features.Prompts, result.Prompts...)
+
 			return result.NextCursor, nil
 		}); err != nil {
 			return nil, err
 		}
 	}
-	if capabilities.Resources != nil {
+
+	if capabilities.Resources != nil && (server.DiscoveryMethod == "" || server.DiscoveryMethod == "resources") {
 		if err := paginate(server.Name, "resources/list", func(cursor string) (string, error) {
 			result, err := session.ListResources(ctx, &mcp.ListResourcesParams{Cursor: cursor})
 			if err != nil {
 				return "", err
 			}
+
 			features.Resources = append(features.Resources, result.Resources...)
+
 			return result.NextCursor, nil
 		}); err != nil {
 			return nil, err
 		}
+
 		if err := paginate(server.Name, "resources/templates/list", func(cursor string) (string, error) {
 			result, err := session.ListResourceTemplates(ctx, &mcp.ListResourceTemplatesParams{Cursor: cursor})
 			if err != nil {
 				return "", err
 			}
+
 			features.ResourceTemplates = append(features.ResourceTemplates, result.ResourceTemplates...)
+
 			return result.NextCursor, nil
 		}); err != nil {
 			return nil, err
 		}
 	}
+
 	return features, nil
 }
 
@@ -234,6 +249,7 @@ func (f *Factory) connectWithStandaloneSSE(ctx context.Context, server config.Se
 	if server.URL == "" {
 		return nil, fmt.Errorf("component is not configured for HTTP")
 	}
+
 	var oauthHandler auth.OAuthHandler
 	if f.OAuth != nil {
 		var err error
@@ -241,17 +257,24 @@ func (f *Factory) connectWithStandaloneSSE(ctx context.Context, server config.Se
 		if err != nil {
 			return nil, fmt.Errorf("OAuth handler: %w", err)
 		}
+
 		if oauthHandler != nil {
-			oauthHandler = typedOAuthHandler{OAuthHandler: oauthHandler}
+			oauthHandler = typedOAuthHandler{
+				OAuthHandler: oauthHandler,
+				server:       server,
+			}
 		}
 	}
+
 	if oauthHandler == nil {
-		oauthHandler = authorizationErrorHandler{}
+		oauthHandler = authorizationErrorHandler{server: server}
 	}
+
 	clientInfo := f.ClientInfo
 	if forwarded := component.ClientInfoFromContext(ctx); forwarded != nil {
 		clientInfo = forwarded
 	}
+
 	client := component.NewClient(clientInfo, callbacks)
 	transport := &mcp.StreamableClientTransport{
 		Endpoint:             server.URL,
@@ -259,6 +282,7 @@ func (f *Factory) connectWithStandaloneSSE(ctx context.Context, server config.Se
 		DisableStandaloneSSE: !standaloneSSE,
 		OAuthHandler:         oauthHandler,
 	}
+
 	return client.Connect(ctx, transport, nil)
 }
 func (r *runtime) CallTool(ctx context.Context, params *mcp.CallToolParams) (*mcp.CallToolResult, error) {

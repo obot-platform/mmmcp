@@ -106,6 +106,10 @@ func (c *Catalog) toCompositeURI(prefix, original string) string {
 			}
 		}
 	}
+	if prefix == "" {
+		return original
+	}
+
 	return "mmmcp+" + prefix + ":" + original
 }
 

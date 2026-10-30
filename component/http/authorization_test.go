@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
+	"github.com/obot-platform/mmmcp/component"
 	componenthttp "github.com/obot-platform/mmmcp/component/http"
 	"github.com/obot-platform/mmmcp/config"
 	"golang.org/x/oauth2"
@@ -131,4 +132,45 @@ func (failingOAuthHandler) TokenSource(context.Context) (oauth2.TokenSource, err
 func (h failingOAuthHandler) Authorize(_ context.Context, _ *http.Request, resp *http.Response) error {
 	resp.Body.Close()
 	return h.err
+}
+
+func TestFactoryRejectsPlainForbiddenWithoutOAuthChallenge(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not allowed", http.StatusForbidden)
+	}))
+	defer server.Close()
+	factory := componenthttp.NewFactory(componenthttp.FactoryOptions{})
+	_, err := factory.Discover(t.Context(), config.Server{
+		Name: "plain",
+		URL:  server.URL,
+	})
+	if err == nil {
+		t.Fatal("plain 403 succeeded")
+	}
+
+	if _, ok := errors.AsType[*componenthttp.AuthorizationError](err); ok {
+		t.Fatalf("plain 403 became OAuth: %v", err)
+	}
+}
+
+func TestFactoryKeepsMultipleBearerChallengesSeparate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Add("WWW-Authenticate", `Bearer resource_metadata="https://one.test/meta", scope="read"`)
+		w.Header().Add("WWW-Authenticate", `Bearer resource_metadata="https://two.test/meta", scope="write"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	factory := componenthttp.NewFactory(componenthttp.FactoryOptions{})
+	_, err := factory.Discover(t.Context(), config.Server{
+		Name: "multiple",
+		URL:  server.URL,
+	})
+	challenges := component.AuthorizationErrors(err)
+	if len(challenges) != 2 {
+		t.Fatalf("challenges = %d: %v", len(challenges), err)
+	}
+
+	if challenges[0].Scope != "read" || challenges[0].ResourceMetadata != "https://one.test/meta" || challenges[1].Scope != "write" || challenges[1].ResourceMetadata != "https://two.test/meta" {
+		t.Fatalf("provider parameters mixed: %+v", challenges)
+	}
 }
