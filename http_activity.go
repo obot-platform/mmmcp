@@ -11,6 +11,9 @@ type httpActivityRegistry struct {
 	mu       sync.Mutex
 	active   map[string]int
 	sessions map[string]*mcp.ServerSession
+
+	// watchers includes replaced sessions until their cleanup finishes.
+	watchers int
 }
 
 func (r *httpActivityRegistry) begin(sessionID string) int {
@@ -43,16 +46,42 @@ func (r *httpActivityRegistry) end(sessionID string) int {
 }
 
 func (r *httpActivityRegistry) bind(session *mcp.ServerSession) int {
-	if session == nil || session.ID() == "" {
+	if session == nil {
 		return 0
 	}
+
+	id := session.ID()
+	if id == "" {
+		return 0
+	}
+
 	r.mu.Lock()
 	if r.sessions == nil {
 		r.sessions = make(map[string]*mcp.ServerSession)
 	}
-	r.sessions[session.ID()] = session
-	active := r.active[session.ID()]
+	previous := r.sessions[id]
+	r.sessions[id] = session
+	active := r.active[id]
+	if previous != session {
+		r.watchers++
+	}
 	r.mu.Unlock()
+
+	if previous != session {
+		go func() {
+			// Closure releases the reference even when the connection ended with an error.
+			_ = session.Wait()
+
+			r.mu.Lock()
+			// An ended session must not remove a replacement that reused its ID.
+			if r.sessions[id] == session {
+				delete(r.sessions, id)
+			}
+			r.watchers--
+			r.mu.Unlock()
+		}()
+	}
+
 	return active
 }
 
