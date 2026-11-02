@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
@@ -35,8 +34,8 @@ func (authorizationErrorHandler) TokenSource(context.Context) (oauth2.TokenSourc
 }
 
 func (h authorizationErrorHandler) Authorize(_ context.Context, _ *http.Request, resp *http.Response) error {
+	// A component can stall its error body indefinitely; preserve the challenge without draining the response.
 	defer resp.Body.Close()
-	defer func() { _, _ = io.Copy(io.Discard, resp.Body) }()
 
 	return authorizationErrorFromResponse(resp, h.server)
 }
