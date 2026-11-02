@@ -32,6 +32,7 @@ type frontendBindings struct {
 	mu       sync.Mutex
 	sessions map[*mcp.ServerSession]map[frontendBinding]struct{}
 	servers  map[*mcp.ServerSession]*mcp.Server
+	watched  map[*mcp.ServerSession]struct{}
 }
 
 // observe retains snapshots only while a configuration has active listeners.
@@ -91,12 +92,40 @@ func (b *frontendBindings) bindServer(session *mcp.ServerSession, server *mcp.Se
 	if session == nil || server == nil {
 		return
 	}
+
+	// Sessions without IDs do not use persistent component runtimes.
+	if session.ID() == "" {
+		return
+	}
+
 	b.mu.Lock()
 	if b.servers == nil {
 		b.servers = make(map[*mcp.ServerSession]*mcp.Server)
 	}
 	b.servers[session] = server
+
+	// Watch the session lifetime even when its last component runtime unbinds.
+	_, watched := b.watched[session]
+	if !watched {
+		if b.watched == nil {
+			b.watched = make(map[*mcp.ServerSession]struct{})
+		}
+		b.watched[session] = struct{}{}
+	}
 	b.mu.Unlock()
+
+	if !watched {
+		go func() {
+			// Wait outside the lock so live sessions can keep updating bindings.
+			_ = session.Wait()
+
+			b.mu.Lock()
+			delete(b.servers, session)
+			delete(b.sessions, session)
+			delete(b.watched, session)
+			b.mu.Unlock()
+		}()
+	}
 }
 
 func (b *frontendBindings) bind(session *mcp.ServerSession, fingerprint, componentName string) {
