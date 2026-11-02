@@ -2,6 +2,7 @@ package mmmcp
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"sync"
 
@@ -33,6 +34,7 @@ type frontendBindings struct {
 	sessions map[*mcp.ServerSession]map[frontendBinding]struct{}
 	servers  map[*mcp.ServerSession]*mcp.Server
 	watched  map[*mcp.ServerSession]struct{}
+	wg       sync.WaitGroup
 }
 
 // observe retains snapshots only while a configuration has active listeners.
@@ -111,11 +113,14 @@ func (b *frontendBindings) bindServer(session *mcp.ServerSession, server *mcp.Se
 			b.watched = make(map[*mcp.ServerSession]struct{})
 		}
 		b.watched[session] = struct{}{}
+		b.wg.Add(1)
 	}
 	b.mu.Unlock()
 
 	if !watched {
 		go func() {
+			defer b.wg.Done()
+
 			// Wait outside the lock so live sessions can keep updating bindings.
 			_ = session.Wait()
 
@@ -126,6 +131,24 @@ func (b *frontendBindings) bindServer(session *mcp.ServerSession, server *mcp.Se
 			b.mu.Unlock()
 		}()
 	}
+}
+
+// close runs after HTTP admission stops and all admitted requests return.
+func (b *frontendBindings) close() error {
+	b.mu.Lock()
+	sessions := make([]*mcp.ServerSession, 0, len(b.watched))
+	for session := range b.watched {
+		sessions = append(sessions, session)
+	}
+	b.mu.Unlock()
+
+	var result error
+	for _, session := range sessions {
+		result = errors.Join(result, session.Close())
+	}
+	b.wg.Wait()
+
+	return result
 }
 
 func (b *frontendBindings) bind(session *mcp.ServerSession, fingerprint, componentName string) {
@@ -173,6 +196,15 @@ func (c *Composite) bindFrontendServer(server *mcp.Server) mcp.Middleware {
 			if frontend, ok := req.GetSession().(*mcp.ServerSession); ok {
 				c.bindings.bindServer(frontend, server)
 			}
+
+			// Legacy HTTP sessions detach request cancellation in the SDK.
+			ctx, cancel := context.WithCancel(ctx)
+			stop := context.AfterFunc(c.shutdownCtx, cancel)
+			defer func() {
+				stop()
+				cancel()
+			}()
+
 			return next(ctx, method, req)
 		}
 	}

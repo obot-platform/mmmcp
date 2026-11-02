@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/obot-platform/mmmcp"
@@ -101,16 +102,18 @@ func run(ctx context.Context, args []string, stderr io.Writer, deps dependencies
 		return err
 	}
 	var serveErr error
+	closeComposite := sync.OnceValue(composite.Close)
+
 	switch parsed.transport {
 	case "http":
-		serveErr = serveHTTP(ctx, effective.Listen, composite.HTTPHandler(), deps.listen, logger)
+		serveErr = serveHTTP(ctx, effective.Listen, composite.HTTPHandler(), deps.listen, logger, closeComposite)
 	case "stdio":
 		serveErr = composite.RunStdio(ctx)
 	}
 	if ctx.Err() != nil && (serveErr == nil || errors.Is(serveErr, context.Canceled)) {
 		serveErr = nil
 	}
-	return errors.Join(serveErr, composite.Close())
+	return errors.Join(serveErr, closeComposite())
 }
 
 func parseSettings(args []string, stderr io.Writer, lookupEnv func(string) (string, bool)) (settings, error) {
@@ -151,12 +154,15 @@ func parseSettings(args []string, stderr io.Writer, lookupEnv func(string) (stri
 	return parsed, nil
 }
 
-func serveHTTP(ctx context.Context, address string, handler http.Handler, listen func(string, string) (net.Listener, error), logger *slog.Logger) error {
+func serveHTTP(ctx context.Context, address string, handler http.Handler, listen func(string, string) (net.Listener, error), logger *slog.Logger, closeComposite func() error) error {
 	listener, err := listen("tcp", address)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	// Serve can fail while accepted connections are still reading request bodies.
+	defer server.Close()
+
 	logger.Info("serving MCP over HTTP", "listen", listener.Addr().String())
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
@@ -168,6 +174,10 @@ func serveHTTP(ctx context.Context, address string, handler http.Handler, listen
 		}
 		return err
 	case <-ctx.Done():
+		// Cancel streams while Shutdown drains; its deadline still forces stalled connections closed.
+		// run waits for this cleanup through closeComposite before returning.
+		go func() { _ = closeComposite() }()
+
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
