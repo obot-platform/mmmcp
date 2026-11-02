@@ -48,6 +48,10 @@ type Composite struct {
 	stdioCancels              map[uint64]context.CancelFunc
 	stdioNext                 uint64
 	stdioWG                   sync.WaitGroup
+	shutdownCtx               context.Context
+	shutdownCancel            context.CancelFunc
+	httpMu                    sync.Mutex
+	httpWG                    sync.WaitGroup
 	closed                    atomic.Bool
 }
 
@@ -102,6 +106,7 @@ func New(ctx context.Context, cfg *config.Config, opts Options) (*Composite, err
 	c.events = storage.NewEventAdapter(stores, func(ctx context.Context) string {
 		return effectiveDSN(ctx, c.serverOptions.DSN)
 	})
+	c.shutdownCtx, c.shutdownCancel = context.WithCancel(context.Background())
 	c.handler = c.newHTTPHandler(opts)
 	return c, nil
 }
@@ -141,19 +146,29 @@ func (c *Composite) Refresh(ctx context.Context) error {
 	return err
 }
 
-// Close prevents new requests and releases component resources.
+// Close cancels active requests, closes frontend sessions, and releases component resources.
+// It waits for admitted HTTP requests and session handlers to finish before closing storage.
 func (c *Composite) Close() error {
 	if c == nil || !c.closed.CompareAndSwap(false, true) {
 		return nil
 	}
+
+	// Stop admission before waiting so initialization cannot outlive session cleanup.
+	c.httpMu.Lock()
+	c.shutdownCancel()
+	c.httpMu.Unlock()
+
 	c.stdioMu.Lock()
 	for _, cancel := range c.stdioCancels {
 		cancel()
 	}
 	c.stdioMu.Unlock()
 	c.stdioWG.Wait()
+	c.httpWG.Wait()
+	frontendErr := c.bindings.close()
+
 	c.registry.Close()
-	return errors.Join(c.pool.Close(), c.factory.Close(), c.stores.Close())
+	return errors.Join(frontendErr, c.pool.Close(), c.factory.Close(), c.stores.Close())
 }
 
 func newFrontendServer(c *Composite, opts Options, implementation mcp.Implementation) *mcp.Server {

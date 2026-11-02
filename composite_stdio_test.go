@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http/httptest"
@@ -161,7 +162,11 @@ func TestCompositeStdioStatefulIsolationReuseIdleRestartAndCleanup(t *testing.T)
 		t.Fatal(err)
 	}
 	if err := composite.Close(); err != nil {
-		t.Fatal(err)
+		// The helper exits with status 2 when the SDK reports EOF during shutdown.
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 2 {
+			t.Fatal(err)
+		}
 	}
 	waitProcessGone(t, restartedPID)
 	waitProcessGone(t, secondPID)

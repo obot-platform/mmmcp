@@ -3,6 +3,7 @@ package component
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -13,10 +14,13 @@ import (
 type Pool struct {
 	factory RuntimeFactory
 
-	mu      sync.Mutex
-	entries map[poolKey]*poolEntry
-	watched map[*mcp.ServerSession]struct{}
-	closed  bool
+	mu              sync.Mutex
+	entries         map[poolKey]*poolEntry
+	watched         map[*mcp.ServerSession]struct{}
+	closed          bool
+	cleanup         sync.WaitGroup
+	cleanupErr      error
+	cleanupFailures uint64
 }
 
 type poolKey struct {
@@ -141,6 +145,15 @@ func (p *Pool) closeSession(frontend *mcp.ServerSession) {
 	var entries []*poolEntry
 	p.mu.Lock()
 	delete(p.watched, frontend)
+	if p.closed {
+		p.mu.Unlock()
+		return
+	}
+
+	// Register before removing entries so Close also waits for detached cleanup.
+	p.cleanup.Add(1)
+	defer p.cleanup.Done()
+
 	for key, entry := range p.entries {
 		if key.frontend != frontend {
 			continue
@@ -149,10 +162,17 @@ func (p *Pool) closeSession(frontend *mcp.ServerSession) {
 		delete(p.entries, key)
 	}
 	p.mu.Unlock()
+
 	for _, entry := range entries {
 		<-entry.ready
 		if entry.runtime != nil {
-			_ = entry.runtime.Close()
+			if err := entry.runtime.Close(); err != nil {
+				// Keep the latest failure and a count without retaining past sessions' errors.
+				p.mu.Lock()
+				p.cleanupErr = err
+				p.cleanupFailures++
+				p.mu.Unlock()
+			}
 		}
 		if entry.onClose != nil {
 			entry.onClose()
@@ -187,5 +207,13 @@ func (p *Pool) Close() error {
 			entry.onClose()
 		}
 	}
+	p.cleanup.Wait()
+
+	p.mu.Lock()
+	if p.cleanupErr != nil {
+		result = errors.Join(result, fmt.Errorf("%d runtime cleanup failures; last error: %w", p.cleanupFailures, p.cleanupErr))
+	}
+	p.mu.Unlock()
+
 	return result
 }
