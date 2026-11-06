@@ -104,6 +104,10 @@ func classifySQLiteDSN(input string, options Options) (sqliteDSN, error) {
 		} else {
 			path = parsed.Path
 		}
+		// Undo the leading slash that keeps a Windows volume out of the URI host.
+		if len(path) > 2 && path[0] == '/' && windowsVolumePath(path[1:]) {
+			path = path[1:]
+		}
 		if strings.Contains(lower, "mode=memory") || path == ":memory:" || strings.HasPrefix(path, ":memory:") {
 			path = ""
 		}
@@ -237,8 +241,25 @@ func addSQLitePragmas(value string) (string, error) {
 	return parsed.String(), nil
 }
 
+// windowsVolumePath reports whether path begins with a Windows volume designator
+// such as "C:". It is checked on every platform so the DSN helpers stay testable
+// on non-Windows builders.
+func windowsVolumePath(path string) bool {
+	if len(path) < 2 || path[1] != ':' {
+		return false
+	}
+	designator := path[0]
+	return ('a' <= designator && designator <= 'z') || ('A' <= designator && designator <= 'Z')
+}
+
 func fileDSN(path string) string {
-	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String()
+	slash := filepath.ToSlash(path)
+	// A Windows volume path has to be encoded as file:///C:/..., otherwise "C:" is
+	// parsed as the URI host and the SQLite driver cannot open the database.
+	if windowsVolumePath(slash) {
+		slash = "/" + slash
+	}
+	return (&url.URL{Scheme: "file", Path: slash}).String()
 }
 
 func defaultDataDirectory(override string) string {

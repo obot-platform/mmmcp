@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -43,6 +44,32 @@ func TestClassifySQLiteDSNForms(t *testing.T) {
 				t.Fatalf("registry key is not a non-reversible digest: %q", classified.key)
 			}
 		})
+	}
+}
+
+// Windows volume paths must be encoded as file:///C:/..., otherwise "C:" is parsed
+// as the URI host and the SQLite driver cannot open the database.
+func TestFileDSNEncodesWindowsVolumePathsAsURIPaths(t *testing.T) {
+	dsn := fileDSN("C:/Users/me/mmmcp.db")
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("parse %q: %v", dsn, err)
+	}
+	if parsed.Host != "" {
+		t.Fatalf("DSN %q parses the Windows volume as host %q", dsn, parsed.Host)
+	}
+	if parsed.Path != "/C:/Users/me/mmmcp.db" {
+		t.Fatalf("path = %q, want %q", parsed.Path, "/C:/Users/me/mmmcp.db")
+	}
+}
+
+func TestClassifySQLiteDSNRoundTripsWindowsVolumePaths(t *testing.T) {
+	classified, err := classifySQLiteDSN(fileDSN("C:/Users/me/mmmcp.db"), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if classified.path != "C:/Users/me/mmmcp.db" {
+		t.Fatalf("path = %q, want %q", classified.path, "C:/Users/me/mmmcp.db")
 	}
 }
 
