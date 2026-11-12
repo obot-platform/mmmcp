@@ -54,7 +54,8 @@ func TestPendingAuthorizationIsNotCached(t *testing.T) {
 			t.Fatal("pending catalog routed a ready component")
 		}
 	}
-	if d.calls.Load() != 4 {
+	// The challenging component is rediscovered; the ready one is kept.
+	if d.calls.Load() != 3 {
 		t.Fatalf("pending catalog was cached: %d discoveries", d.calls.Load())
 	}
 

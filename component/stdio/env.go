@@ -3,6 +3,7 @@ package stdio
 
 import (
 	"runtime"
+	"slices"
 	"sort"
 )
 
@@ -19,7 +20,7 @@ func Environment(lookup func(string) (string, bool), configured map[string]strin
 	if lookup == nil {
 		lookup = func(string) (string, bool) { return "", false }
 	}
-	names := append([]string(nil), baselineNames...)
+	names := slices.Clone(baselineNames)
 	if runtime.GOOS == "windows" {
 		names = append(names, windowsLaunchNames...)
 	}

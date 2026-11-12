@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strconv"
 	"testing"
 
@@ -349,7 +350,7 @@ func TestLegacyStructuredToolContent(t *testing.T) {
 			if got := string(marshalWireResult(t, result)["structuredContent"]); got != test.wantStructured {
 				t.Fatalf("structuredContent = %s, want %s", got, test.wantStructured)
 			}
-			wantContent := append([]mcp.Content(nil), original.Content...)
+			wantContent := slices.Clone(original.Content)
 			if test.wantExtraText != "" {
 				wantContent = append(wantContent, &mcp.TextContent{Text: test.wantExtraText})
 			}

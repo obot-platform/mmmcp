@@ -67,7 +67,8 @@ func TestDiscoveryCollectsEveryAuthorizationFailureBeyondWorkerLimit(t *testing.
 		}
 	}
 
-	if d.calls.Load() != 26 {
+	// Every challenging component is rediscovered; the public one is kept.
+	if d.calls.Load() != 25 {
 		t.Fatalf("discovery calls = %d; auth failures must not be cached", d.calls.Load())
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -40,17 +41,17 @@ func (c *Catalog) ServerInfo() *mcp.Implementation {
 }
 
 // Tools returns a copy of the sorted tool slice.
-func (c *Catalog) Tools() []*mcp.Tool { return append([]*mcp.Tool(nil), c.tools...) }
+func (c *Catalog) Tools() []*mcp.Tool { return slices.Clone(c.tools) }
 
 // Prompts returns a copy of the sorted prompt slice.
-func (c *Catalog) Prompts() []*mcp.Prompt { return append([]*mcp.Prompt(nil), c.prompts...) }
+func (c *Catalog) Prompts() []*mcp.Prompt { return slices.Clone(c.prompts) }
 
 // Resources returns a copy of the sorted resource slice.
-func (c *Catalog) Resources() []*mcp.Resource { return append([]*mcp.Resource(nil), c.resources...) }
+func (c *Catalog) Resources() []*mcp.Resource { return slices.Clone(c.resources) }
 
 // ResourceTemplates returns a copy of the sorted resource-template slice.
 func (c *Catalog) ResourceTemplates() []*mcp.ResourceTemplate {
-	return append([]*mcp.ResourceTemplate(nil), c.resourceTemplates...)
+	return slices.Clone(c.resourceTemplates)
 }
 
 // RouteTool resolves a callable downstream tool name.

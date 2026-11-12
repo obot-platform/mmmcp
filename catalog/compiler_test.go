@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -75,48 +76,65 @@ func (d *gatedDiscoverer) Discover(ctx context.Context, server config.Server) (*
 	return &component.Features{Tools: []*mcp.Tool{{Name: "tool", InputSchema: map[string]any{"type": "object"}}}}, nil
 }
 
+// Command components start child processes and keep the tighter limit; URL
+// components have their own, and never queue behind command components.
 func TestCompileDiscoversComponentsInBoundedParallel(t *testing.T) {
-	const parallelism = 8
-	discoverer := &gatedDiscoverer{
-		started: make(chan string, parallelism),
-		release: make(chan struct{}),
-	}
-	defer func() {
-		select {
-		case <-discoverer.release:
-		default:
+	const commandLimit, urlLimit = 8, 32
+	for _, test := range []struct {
+		name          string
+		commands, url int
+		want          int
+	}{
+		{name: "commands", commands: commandLimit + 2, want: commandLimit},
+		{name: "urls", url: urlLimit + 2, want: urlLimit},
+		{name: "mixed", commands: commandLimit + 2, url: urlLimit + 2, want: commandLimit + urlLimit},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			discoverer := &gatedDiscoverer{
+				started: make(chan string, test.want),
+				release: make(chan struct{}),
+			}
+			defer func() {
+				select {
+				case <-discoverer.release:
+				default:
+					close(discoverer.release)
+				}
+			}()
+
+			var servers []config.Server
+			for i := range test.commands {
+				servers = append(servers, config.Server{Name: fmt.Sprintf("command%d", i), Command: "/bin/true"})
+			}
+			for i := range test.url {
+				servers = append(servers, config.Server{Name: fmt.Sprintf("url%d", i), URL: "https://example.invalid"})
+			}
+			done := make(chan error, 1)
+			go func() {
+				_, err := catalog.Compile(t.Context(), &config.Config{Servers: servers}, discoverer)
+				done <- err
+			}()
+
+			for range test.want {
+				select {
+				case <-discoverer.started:
+				case <-time.After(time.Second):
+					t.Fatal("component discoveries did not start in parallel")
+				}
+			}
+			if got := discoverer.maximum.Load(); got != int32(test.want) {
+				t.Fatalf("maximum parallel discoveries = %d, want %d", got, test.want)
+			}
 			close(discoverer.release)
-		}
-	}()
-
-	servers := make([]config.Server, parallelism+2)
-	for i := range servers {
-		servers[i] = config.Server{Name: string(rune('a' + i)), URL: "https://example.invalid"}
-	}
-	done := make(chan error, 1)
-	go func() {
-		_, err := catalog.Compile(t.Context(), &config.Config{Servers: servers}, discoverer)
-		done <- err
-	}()
-
-	for range parallelism {
-		select {
-		case <-discoverer.started:
-		case <-time.After(time.Second):
-			t.Fatal("component discoveries did not start in parallel")
-		}
-	}
-	if got := discoverer.maximum.Load(); got != parallelism {
-		t.Fatalf("maximum parallel discoveries = %d, want %d", got, parallelism)
-	}
-	close(discoverer.release)
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("catalog compilation did not finish")
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("catalog compilation did not finish")
+			}
+		})
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"iter"
+	"slices"
 	"strings"
 	"time"
 
@@ -141,7 +142,7 @@ func (s *SQLStore) readAfter(ctx context.Context, sessionID, streamID string, in
 			} else if payload == nil {
 				values = append(values, []byte{})
 			} else {
-				values = append(values, append([]byte(nil), payload...))
+				values = append(values, slices.Clone(payload))
 			}
 		}
 		return rows.Err()
