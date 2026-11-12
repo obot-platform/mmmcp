@@ -8,6 +8,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -80,7 +81,7 @@ func (c *Composite) captureAuthorizationError(ctx context.Context, request mcp.R
 
 	for _, authErr := range challenges {
 		clone := *authErr
-		clone.Scopes = append([]string(nil), authErr.Scopes...)
+		clone.Scopes = slices.Clone(authErr.Scopes)
 		capture.errs = append(capture.errs, &clone)
 	}
 }
@@ -89,7 +90,7 @@ func (c *authorizationErrorCapture) Errors() []*component.AuthorizationError {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return append([]*component.AuthorizationError(nil), c.errs...)
+	return slices.Clone(c.errs)
 }
 
 func (c *Composite) serveBufferedAuthorizationResponse(w http.ResponseWriter, r *http.Request, next http.Handler) {

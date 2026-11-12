@@ -39,12 +39,16 @@ type Server struct {
 	Args               []string
 	Env                map[string]string
 	WorkingDirectory   string
-	Timeout            time.Duration
-	Tools              []ToolOverride
-	DisableTools       bool
-	Prompts            []PromptOverride
-	Resources          []ResourceOverride
-	ResourceTemplates  []ResourceTemplateOverride
+
+	// Timeout bounds each request to the component. Zero limits discovery to 30
+	// seconds, counted from when discovery starts, and leaves calls bounded only
+	// by the caller's request.
+	Timeout           time.Duration
+	Tools             []ToolOverride
+	DisableTools      bool
+	Prompts           []PromptOverride
+	Resources         []ResourceOverride
+	ResourceTemplates []ResourceTemplateOverride
 }
 
 // ToolOverride customizes a discovered tool.

@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"testing"
 
@@ -192,21 +193,21 @@ func (s *Server) PromptGets() []PromptGet {
 func (s *Server) Reads() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]string(nil), s.reads...)
+	return slices.Clone(s.reads)
 }
 
 // Subscribes returns a copy of recorded resource subscription URIs.
 func (s *Server) Subscribes() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]string(nil), s.subscribes...)
+	return slices.Clone(s.subscribes)
 }
 
 // Unsubscribes returns a copy of recorded resource unsubscription URIs.
 func (s *Server) Unsubscribes() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]string(nil), s.unsubscribes...)
+	return slices.Clone(s.unsubscribes)
 }
 
 // Discoveries returns the number of downstream client sessions negotiated.

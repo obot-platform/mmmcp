@@ -108,6 +108,17 @@ so all components and feature lists are rediscovered and subsequent stateful
 calls use new downstream runtimes. Reusing an earlier value can reuse its cached
 catalog. The value is not sent to downstream servers.
 
+Each server accepts an optional `timeout` duration (for example `45s` or `5m`).
+It bounds every request to that component: discovery and each tool call, prompt
+get, resource read, and subscription. Without it, discovery is limited to 30
+seconds per component, including the first discovery at startup, while calls
+last as long as the client's request. The 30 seconds start when the component's
+discovery begins, not while it waits for a free discovery slot. A component that
+takes longer, such as a command started with `npx` that downloads packages on
+first run, fails discovery unless its `timeout` is raised. Like any other
+discovery failure, that stops startup or fails the configuration's catalog. A
+configured `timeout` always applies as set, longer or shorter than 30 seconds.
+
 ## Running
 
 Build and run the HTTP frontend:

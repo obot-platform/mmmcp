@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"testing"
 
@@ -120,6 +121,6 @@ func clientInfoComponent(t *testing.T, stateful bool) (*httptest.Server, func() 
 	return fixture, func() []mcp.Implementation {
 		mu.Lock()
 		defer mu.Unlock()
-		return append([]mcp.Implementation(nil), infos...)
+		return slices.Clone(infos)
 	}
 }

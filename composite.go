@@ -85,6 +85,7 @@ func New(ctx context.Context, cfg *config.Config, opts Options) (*Composite, err
 	registry := catalog.NewRegistry(factory)
 	_, defaultCatalogFingerprint, err := registry.Get(ctx, cfg)
 	if err != nil {
+		registry.Close()
 		_ = factory.Close()
 		_ = stores.Close()
 		return nil, err

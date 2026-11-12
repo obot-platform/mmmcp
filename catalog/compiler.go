@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/obot-platform/mmmcp/component"
@@ -15,8 +16,19 @@ import (
 )
 
 const (
-	// maxParallelDiscoveries bounds simultaneous network connections and child processes.
-	maxParallelDiscoveries = 8
+	// maxParallelCommandDiscoveries bounds simultaneous discoveries of command
+	// components, each of which starts a child process.
+	maxParallelCommandDiscoveries = 8
+	// maxParallelURLDiscoveries bounds simultaneous discoveries of URL components,
+	// which cost only a network connection. URL components do not queue behind
+	// command components: each kind has its own workers.
+	maxParallelURLDiscoveries = 32
+
+	// defaultDiscoveryTimeout bounds discovery of a component without a configured
+	// timeout. Discovery can run detached from any caller, so without a bound a
+	// component that never answers would hold its configuration, and every request
+	// waiting on it, until Close.
+	defaultDiscoveryTimeout = 30 * time.Second
 )
 
 type discoveryResult struct {
@@ -140,68 +152,79 @@ func discoverComponents(ctx context.Context, servers []config.Server, prefixes [
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
-	workerCount := min(len(servers), maxParallelDiscoveries)
-	var (
-		nextMu  sync.Mutex
-		workers sync.WaitGroup
-		next    int
-	)
+	var commands, urls []int
+	for i, server := range servers {
+		if server.Command != "" {
+			commands = append(commands, i)
+		} else {
+			urls = append(urls, i)
+		}
+	}
 
-	for range workerCount {
-		workers.Go(func() {
-			for {
-				nextMu.Lock()
-				if ctx.Err() != nil || next >= len(servers) {
+	var workers sync.WaitGroup
+	startWorkers := func(queue []int, limit int) {
+		var (
+			nextMu sync.Mutex
+			next   int
+		)
+		for range min(len(queue), limit) {
+			workers.Go(func() {
+				for {
+					nextMu.Lock()
+					if ctx.Err() != nil || next >= len(queue) {
+						nextMu.Unlock()
+
+						return
+					}
+
+					i := queue[next]
+					next++
 					nextMu.Unlock()
 
-					return
-				}
+					features, err := discoverWithTimeout(ctx, discoverer, servers[i])
+					if challenges := component.AuthorizationErrors(err); len(challenges) > 0 {
+						captured := make([]error, 0, len(challenges))
 
-				i := next
-				next++
-				nextMu.Unlock()
+						for _, challenge := range challenges {
+							clone := *challenge
+							clone.Component = servers[i].Name
+							clone.URL = servers[i].URL
+							captured = append(captured, &clone)
+						}
 
-				features, err := discoverer.Discover(ctx, servers[i])
-				if challenges := component.AuthorizationErrors(err); len(challenges) > 0 {
-					captured := make([]error, 0, len(challenges))
+						results[i] = discoveryResult{
+							features: &component.Features{},
+							pending:  true,
+						}
+						if !deferAuthorization {
+							results[i].err = errors.Join(captured...)
+						}
 
-					for _, challenge := range challenges {
-						clone := *challenge
-						clone.Component = servers[i].Name
-						clone.URL = servers[i].URL
-						captured = append(captured, &clone)
+						// Authorization is request-local; finish every sibling, including queued workers.
+						continue
 					}
 
-					results[i] = discoveryResult{
-						features: &component.Features{},
-						pending:  true,
-					}
-					if !deferAuthorization {
-						results[i].err = errors.Join(captured...)
+					if err == nil && features == nil {
+						err = fmt.Errorf("component %q returned nil features", servers[i].Name)
 					}
 
-					// Authorization is request-local; finish every sibling, including queued workers.
-					continue
+					if err == nil {
+						err = validateComponent(servers[i], prefixes[i], features)
+					}
+
+					if err != nil {
+						cancel(err)
+
+						return
+					}
+
+					results[i].features = features
 				}
-
-				if err == nil && features == nil {
-					err = fmt.Errorf("component %q returned nil features", servers[i].Name)
-				}
-
-				if err == nil {
-					err = validateComponent(servers[i], prefixes[i], features)
-				}
-
-				if err != nil {
-					cancel(err)
-
-					return
-				}
-
-				results[i].features = features
-			}
-		})
+			})
+		}
 	}
+	startWorkers(commands, maxParallelCommandDiscoveries)
+	startWorkers(urls, maxParallelURLDiscoveries)
 
 	workers.Wait()
 	if err := context.Cause(ctx); err != nil {
@@ -408,4 +431,22 @@ func keyedOverrides[T any](componentName, family string, values []T, key func(T)
 
 func collision(family, identity, first, second string) error {
 	return fmt.Errorf("composite %s %q collides between components %q and %q", family, identity, first, second)
+}
+
+// discoverWithTimeout discovers one component under its configured timeout, or
+// defaultDiscoveryTimeout when it has none. The clock starts when a worker takes
+// the component, so time queued behind the concurrency limits does not count.
+func discoverWithTimeout(ctx context.Context, discoverer component.Discoverer, server config.Server) (*component.Features, error) {
+	timeout := server.Timeout
+	if timeout <= 0 {
+		timeout = defaultDiscoveryTimeout
+	}
+	discoveryCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	features, err := discoverer.Discover(discoveryCtx, server)
+	if err != nil && ctx.Err() == nil && errors.Is(discoveryCtx.Err(), context.DeadlineExceeded) {
+		return nil, fmt.Errorf("component %q: discovery timed out after %s: %w", server.Name, timeout, err)
+	}
+	return features, err
 }
