@@ -276,3 +276,30 @@ func waitProcessGone(t *testing.T, pid int) {
 	}
 	t.Fatalf("process %d still running", pid)
 }
+
+// A stateful call made after the component's process died must be retried on
+// a new process, while the call the process died during is not replayed.
+func TestCompositeStdioStatefulRetriesAfterProcessDies(t *testing.T) {
+	exitLog := filepath.Join(t.TempDir(), "exits")
+	server := stdioServerConfig(map[string]string{"MMMCP_EXIT_LOG": exitLog})
+	composite, err := mmmcp.New(t.Context(), &config.Config{Servers: []config.Server{server}}, mmmcp.Options{CommandTerminateDuration: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = composite.Close() })
+	frontend := httptest.NewServer(composite.HTTPHandler())
+	t.Cleanup(frontend.Close)
+	session := connectLegacy(t, frontend, nil)
+
+	pid := callStdioInfo(t, session).PID
+	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "exit"})
+	if err == nil && !result.IsError {
+		t.Fatal("call that killed the process succeeded")
+	}
+	if data, err := os.ReadFile(exitLog); err != nil || string(data) != "exit\n" {
+		t.Fatalf("exit log = %q, %v; want exactly one run (the call must not be replayed)", data, err)
+	}
+	if got := callStdioInfo(t, session).PID; got == pid {
+		t.Fatalf("call after process death used dead PID %d", pid)
+	}
+}

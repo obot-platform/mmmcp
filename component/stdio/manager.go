@@ -52,6 +52,15 @@ func (m *manager) acquire(ctx context.Context) (component.Runtime, func(), error
 			return nil, nil, errors.New("stdio component runtime is closed")
 		}
 		m.stopTimerLocked()
+		if component.Ended(m.runtime) {
+			// The process exited or its session failed, so it can never serve
+			// another request. Drop it and start a fresh one below.
+			dead := m.runtime
+			m.runtime = nil
+			m.mu.Unlock()
+			_ = dead.Close()
+			continue
+		}
 		if m.runtime != nil {
 			m.activeOperations++
 			runtime := m.runtime

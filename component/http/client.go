@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
@@ -18,6 +19,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/obot-platform/mmmcp/component"
 	"github.com/obot-platform/mmmcp/config"
+)
+
+var (
+	_ component.DoneRuntime = (*runtime)(nil)
 )
 
 // Factory creates isolated Streamable HTTP client sessions.
@@ -37,6 +42,9 @@ type FactoryOptions struct {
 type runtime struct {
 	server  config.Server
 	session *mcp.ClientSession
+	// done closes when the SDK session ends, including after a permanent
+	// transport failure such as a failed standalone SSE reconnect.
+	done <-chan struct{}
 }
 
 type headerTransport struct {
@@ -49,6 +57,16 @@ type headerSchemaProperty struct {
 	Header     json.RawMessage                 `json:"x-mcp-header"`
 	Properties map[string]headerSchemaProperty `json:"properties"`
 }
+
+// callAttempt records the POSTs one runtime operation sends, so a failure can
+// be classified as safe to replay on a new session. An operation can send
+// several POSTs: multi-round-trip continuations reuse its context.
+type callAttempt struct {
+	sent          atomic.Bool // at least one POST reached the transport
+	firstRejected atomic.Bool // the first POST was answered 404 for its session ID
+}
+
+type callAttemptKey struct{}
 
 // NewFactory creates a Streamable HTTP component factory.
 func NewFactory(opts FactoryOptions) *Factory {
@@ -198,7 +216,7 @@ func (f *Factory) OpenRuntime(ctx context.Context, server config.Server, opts co
 	if err != nil {
 		return nil, fmt.Errorf("component %q connect: %w", server.Name, err)
 	}
-	return &runtime{server: server, session: session}, nil
+	return &runtime{server: server, session: session, done: component.SessionDone(session)}, nil
 }
 
 func withSession[T any](ctx context.Context, f *Factory, server config.Server, operation string, call func(context.Context, *mcp.ClientSession) (T, error)) (T, error) {
@@ -285,35 +303,72 @@ func (f *Factory) connectWithStandaloneSSE(ctx context.Context, server config.Se
 
 	return client.Connect(ctx, transport, nil)
 }
-func (r *runtime) CallTool(ctx context.Context, params *mcp.CallToolParams) (*mcp.CallToolResult, error) {
+
+// runtimeCall runs one operation on r's session within the server timeout,
+// wrapping a failure that is safe to replay in component.ErrRuntimeEnded.
+func runtimeCall[T any](ctx context.Context, r *runtime, call func(context.Context) (T, error)) (T, error) {
 	ctx, cancel := withTimeout(ctx, r.server.Timeout)
 	defer cancel()
-	return r.session.CallTool(component.WithoutValues(ctx), downstreamCallToolParams(params))
+	attempt := &callAttempt{}
+	result, err := call(context.WithValue(component.WithoutValues(ctx), callAttemptKey{}, attempt))
+	if err != nil && ctx.Err() == nil && attempt.replayable(err) {
+		err = fmt.Errorf("%w: %w", component.ErrRuntimeEnded, err)
+	}
+	return result, err
+}
+
+// replayable reports whether a failed operation is known not to have run, so
+// it can be retried on a new session without repeating side effects.
+func (a *callAttempt) replayable(err error) bool {
+	switch {
+	case a.firstRejected.Load():
+		// The component refused the operation's first POST for an unknown
+		// session, so nothing ran.
+		return true
+	case a.sent.Load():
+		// Some POST may have run the operation, or an earlier round of it.
+		return false
+	default:
+		// Nothing was sent; replay only if the connection is dead. Right after a
+		// session 404, unsent calls get ErrSessionMissing before the connection
+		// finishes shutting down.
+		return errors.Is(err, mcp.ErrConnectionClosed) || errors.Is(err, mcp.ErrSessionMissing)
+	}
+}
+
+func (r *runtime) CallTool(ctx context.Context, params *mcp.CallToolParams) (*mcp.CallToolResult, error) {
+	return runtimeCall(ctx, r, func(ctx context.Context) (*mcp.CallToolResult, error) {
+		return r.session.CallTool(ctx, downstreamCallToolParams(params))
+	})
 }
 
 func (r *runtime) GetPrompt(ctx context.Context, params *mcp.GetPromptParams) (*mcp.GetPromptResult, error) {
-	ctx, cancel := withTimeout(ctx, r.server.Timeout)
-	defer cancel()
-	return r.session.GetPrompt(component.WithoutValues(ctx), downstreamGetPromptParams(params))
+	return runtimeCall(ctx, r, func(ctx context.Context) (*mcp.GetPromptResult, error) {
+		return r.session.GetPrompt(ctx, downstreamGetPromptParams(params))
+	})
 }
 
 func (r *runtime) ReadResource(ctx context.Context, params *mcp.ReadResourceParams) (*mcp.ReadResourceResult, error) {
-	ctx, cancel := withTimeout(ctx, r.server.Timeout)
-	defer cancel()
-	return r.session.ReadResource(component.WithoutValues(ctx), downstreamReadResourceParams(params))
+	return runtimeCall(ctx, r, func(ctx context.Context) (*mcp.ReadResourceResult, error) {
+		return r.session.ReadResource(ctx, downstreamReadResourceParams(params))
+	})
 }
 
 func (r *runtime) Subscribe(ctx context.Context, params *mcp.SubscribeParams) error {
-	ctx, cancel := withTimeout(ctx, r.server.Timeout)
-	defer cancel()
-	return r.session.Subscribe(component.WithoutValues(ctx), params)
+	_, err := runtimeCall(ctx, r, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, r.session.Subscribe(ctx, params)
+	})
+	return err
 }
 
 func (r *runtime) Unsubscribe(ctx context.Context, params *mcp.UnsubscribeParams) error {
-	ctx, cancel := withTimeout(ctx, r.server.Timeout)
-	defer cancel()
-	return r.session.Unsubscribe(component.WithoutValues(ctx), params)
+	_, err := runtimeCall(ctx, r, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, r.session.Unsubscribe(ctx, params)
+	})
+	return err
 }
+
+func (r *runtime) Done() <-chan struct{} { return r.done }
 
 func (r *runtime) Close() error { return r.session.Close() }
 
@@ -373,7 +428,26 @@ func (t headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	tool, arguments := component.ToolCallFromContext(req.Context())
 	addToolParamHeaders(clone.Header, tool, arguments)
-	return t.base.RoundTrip(clone)
+
+	attempt, _ := req.Context().Value(callAttemptKey{}).(*callAttempt)
+	if attempt == nil || req.Method != http.MethodPost {
+		return t.base.RoundTrip(clone)
+	}
+	first := !attempt.sent.Swap(true)
+	resp, err := t.base.RoundTrip(clone)
+	if err == nil && resp.StatusCode == http.StatusNotFound && req.Header.Get("Mcp-Session-Id") != "" {
+		if first {
+			attempt.firstRejected.Store(true)
+		}
+		// The SDK reads a JSON-RPC error body before the status, which would
+		// make this a per-call rejection; drop it so the SDK records the lost
+		// session and fails the connection.
+		_ = resp.Body.Close()
+		resp.Body = http.NoBody
+		resp.ContentLength = 0
+		resp.Header.Del("Content-Length")
+	}
+	return resp, err
 }
 
 func addToolParamHeaders(headers http.Header, tool *mcp.Tool, arguments []byte) {
