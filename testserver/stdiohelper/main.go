@@ -34,6 +34,17 @@ func main() {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	})
+	server.AddTool(&mcp.Tool{Name: "exit", InputSchema: map[string]any{"type": "object"}}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Record each run outside the process, so a test can detect a replay.
+		if path := os.Getenv("MMMCP_EXIT_LOG"); path != "" {
+			if f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+				_, _ = f.WriteString("exit\n")
+				_ = f.Close()
+			}
+		}
+		os.Exit(1)
+		return nil, nil
+	})
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)

@@ -59,7 +59,15 @@ func (p *Pool) Acquire(ctx context.Context, frontend *mcp.ServerSession, fingerp
 		p.mu.Unlock()
 		return nil, nil, errors.New("component: pool is closed")
 	}
-	if entry := p.entries[key]; entry != nil {
+	// A runtime whose downstream session ended (for example, the component
+	// reaped it and the SDK failed the connection) can never serve another
+	// request, so replace it instead of handing it out again.
+	var stale *poolEntry
+	if entry := p.entries[key]; entry != nil && entry.ended() {
+		stale = entry
+		// Pool.Close waits for the stale runtime's detached Close below.
+		p.cleanup.Add(1)
+	} else if entry != nil {
 		entry.refs++
 		p.mu.Unlock()
 		select {
@@ -84,6 +92,18 @@ func (p *Pool) Acquire(ctx context.Context, frontend *mcp.ServerSession, fingerp
 		}()
 	}
 	p.mu.Unlock()
+
+	if stale != nil {
+		// The stale entry's OnClose is deliberately skipped: its frontend binding
+		// has the same key as the replacement's, and unbinding could drop the
+		// frontend's server association until its next request. A binding left by
+		// a failed replacement is released when the frontend session ends.
+		// Closing the dead runtime can wait on its transport, so it runs detached.
+		go func() {
+			defer p.cleanup.Done()
+			p.recordCleanupErr(stale.runtime.Close())
+		}()
+	}
 
 	entry.runtime, entry.err = p.factory.OpenRuntime(ctx, server, opts)
 	p.mu.Lock()
@@ -164,20 +184,44 @@ func (p *Pool) closeSession(frontend *mcp.ServerSession) {
 	p.mu.Unlock()
 
 	for _, entry := range entries {
-		<-entry.ready
-		if entry.runtime != nil {
-			if err := entry.runtime.Close(); err != nil {
-				// Keep the latest failure and a count without retaining past sessions' errors.
-				p.mu.Lock()
-				p.cleanupErr = err
-				p.cleanupFailures++
-				p.mu.Unlock()
-			}
-		}
-		if entry.onClose != nil {
-			entry.onClose()
-		}
+		p.recordCleanupErr(p.closeEntry(entry))
 	}
+}
+
+// ended reports whether entry's runtime is ready but its downstream session
+// has already ended.
+func (e *poolEntry) ended() bool {
+	select {
+	case <-e.ready:
+		return Ended(e.runtime)
+	default:
+		return false
+	}
+}
+
+// closeEntry closes an entry already removed from p.entries.
+func (p *Pool) closeEntry(entry *poolEntry) error {
+	<-entry.ready
+	var err error
+	if entry.runtime != nil {
+		err = entry.runtime.Close()
+	}
+	if entry.onClose != nil {
+		entry.onClose()
+	}
+	return err
+}
+
+// recordCleanupErr keeps the latest failure and a count without retaining
+// past sessions' errors.
+func (p *Pool) recordCleanupErr(err error) {
+	if err == nil {
+		return
+	}
+	p.mu.Lock()
+	p.cleanupErr = err
+	p.cleanupFailures++
+	p.mu.Unlock()
 }
 
 // Close closes every pooled runtime and prevents future acquisitions.
@@ -199,13 +243,7 @@ func (p *Pool) Close() error {
 	p.mu.Unlock()
 	var result error
 	for _, entry := range entries {
-		<-entry.ready
-		if entry.runtime != nil {
-			result = errors.Join(result, entry.runtime.Close())
-		}
-		if entry.onClose != nil {
-			entry.onClose()
-		}
+		result = errors.Join(result, p.closeEntry(entry))
 	}
 	p.cleanup.Wait()
 
