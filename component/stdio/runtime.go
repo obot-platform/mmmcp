@@ -10,12 +10,20 @@ import (
 	"github.com/obot-platform/mmmcp/config"
 )
 
+var (
+	_ component.DoneRuntime = (*runtimeSession)(nil)
+)
+
 type runtimeSession struct {
 	server  config.Server
 	session *mcp.ClientSession
 	once    sync.Once
 	err     error
+	// done closes when the SDK session ends, including when the process exits.
+	done <-chan struct{}
 }
+
+func (r *runtimeSession) Done() <-chan struct{} { return r.done }
 
 func connect(ctx context.Context, server config.Server, builder commandBuilder, clientInfo *mcp.Implementation, callbacks component.Callbacks) (*runtimeSession, error) {
 	ctx, cancel := withTimeout(ctx, server.Timeout)
@@ -29,7 +37,7 @@ func connect(ctx context.Context, server config.Server, builder commandBuilder, 
 	if err != nil {
 		return nil, err
 	}
-	return &runtimeSession{server: server, session: session}, nil
+	return &runtimeSession{server: server, session: session, done: component.SessionDone(session)}, nil
 }
 
 func (r *runtimeSession) CallTool(ctx context.Context, params *mcp.CallToolParams) (*mcp.CallToolResult, error) {

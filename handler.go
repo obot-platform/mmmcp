@@ -2,6 +2,7 @@ package mmmcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
@@ -293,15 +294,12 @@ func (c *Composite) subscribe(ctx context.Context, req *mcp.SubscribeRequest) (e
 	params := *req.Params
 	params.URI = route.OriginalURI
 	params.Meta = component.DownstreamMeta(params.Meta)
-	if req.Session != nil && req.Session.ID() != "" {
-		runtime, release, err := c.acquireRuntime(ctx, req, req.Session, route.Component, route.Prefix, 0)
-		if err != nil {
-			return err
-		}
-		defer release()
-		return runtime.Subscribe(ctx, &params)
-	}
-	return c.factory.Subscribe(ctx, route.Component, &params)
+	_, err = invoke(ctx, c, req, route.Component, func(invoker component.Invoker) (struct{}, error) {
+		return struct{}{}, invoker.Subscribe(ctx, route.Component, &params)
+	}, func(runtime component.Runtime) (struct{}, error) {
+		return struct{}{}, runtime.Subscribe(ctx, &params)
+	}, route.Prefix)
+	return err
 }
 
 func (c *Composite) unsubscribe(ctx context.Context, req *mcp.UnsubscribeRequest) (err error) {
@@ -320,27 +318,41 @@ func (c *Composite) unsubscribe(ctx context.Context, req *mcp.UnsubscribeRequest
 	params := *req.Params
 	params.URI = route.OriginalURI
 	params.Meta = component.DownstreamMeta(params.Meta)
-	if req.Session != nil && req.Session.ID() != "" {
-		runtime, release, err := c.acquireRuntime(ctx, req, req.Session, route.Component, route.Prefix, 0)
-		if err != nil {
-			return err
-		}
-		defer release()
-		return runtime.Unsubscribe(ctx, &params)
-	}
-	return c.factory.Unsubscribe(ctx, route.Component, &params)
+	_, err = invoke(ctx, c, req, route.Component, func(invoker component.Invoker) (struct{}, error) {
+		return struct{}{}, invoker.Unsubscribe(ctx, route.Component, &params)
+	}, func(runtime component.Runtime) (struct{}, error) {
+		return struct{}{}, runtime.Unsubscribe(ctx, &params)
+	}, route.Prefix)
+	return err
 }
 
+// invoke runs one component operation: on the frontend session's pooled
+// runtime when the frontend is stateful, otherwise on a fresh session. A
+// stateful operation that failed with component.ErrRuntimeEnded never reached
+// the component, so it is retried once on a replacement runtime.
 func invoke[T any](ctx context.Context, c *Composite, request mcp.Request, server config.Server, stateless func(component.Invoker) (T, error), stateful func(component.Runtime) (T, error), prefix string) (T, error) {
 	if frontend, ok := request.GetSession().(*mcp.ServerSession); ok && frontend.ID() != "" {
 		frontendActivity := c.bindFrontendActivity(frontend)
-		runtime, release, err := c.acquireRuntime(ctx, request, frontend, server, prefix, frontendActivity)
-		if err != nil {
-			var zero T
-			return zero, err
+		for attempt := 0; ; attempt++ {
+			runtime, release, err := c.acquireRuntime(ctx, request, frontend, server, prefix, frontendActivity)
+			if err != nil {
+				var zero T
+				return zero, err
+			}
+			result, err := stateful(runtime)
+			release()
+			if attempt > 0 || !errors.Is(err, component.ErrRuntimeEnded) {
+				return result, err
+			}
+			// Wait for the runtime to report its end, so Acquire replaces it.
+			if done, ok := runtime.(component.DoneRuntime); ok {
+				select {
+				case <-done.Done():
+				case <-ctx.Done():
+					return result, err
+				}
+			}
 		}
-		defer release()
-		return stateful(runtime)
 	}
 	return stateless(c.factory)
 }

@@ -4,6 +4,7 @@ package component
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"slices"
 	"time"
@@ -16,6 +17,13 @@ const (
 	FeatureTools     FeatureFamily = "tools"
 	FeaturePrompts   FeatureFamily = "prompts"
 	FeatureResources FeatureFamily = "resources"
+)
+
+var (
+	// ErrRuntimeEnded marks an operation that failed because the runtime's
+	// downstream session ended before the request reached the component, so it
+	// is safe to retry on a replacement runtime.
+	ErrRuntimeEnded = errors.New("component runtime ended")
 )
 
 // Features is a complete component discovery snapshot.
@@ -97,6 +105,13 @@ type FrontendActivityRuntime interface {
 	SetFrontendActivity(int)
 }
 
+// DoneRuntime is implemented by runtimes whose downstream session can end on
+// its own, for example after a permanent transport failure. Done is closed
+// once the runtime can no longer serve requests, so it must be replaced.
+type DoneRuntime interface {
+	Done() <-chan struct{}
+}
+
 // RuntimeFactory opens connected component sessions for stateful frontends.
 type RuntimeFactory interface {
 	OpenRuntime(context.Context, config.Server, RuntimeOptions) (Runtime, error)
@@ -108,6 +123,30 @@ type Factory interface {
 	Invoker
 	RuntimeFactory
 	Close() error
+}
+
+// SessionDone returns a channel that closes when session ends.
+func SessionDone(session *mcp.ClientSession) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		_ = session.Wait()
+		close(done)
+	}()
+	return done
+}
+
+// Ended reports whether runtime implements DoneRuntime and has already ended.
+func Ended(runtime Runtime) bool {
+	done, ok := runtime.(DoneRuntime)
+	if !ok {
+		return false
+	}
+	select {
+	case <-done.Done():
+		return true
+	default:
+		return false
+	}
 }
 
 // WithoutValues preserves cancellation and deadlines while preventing private
